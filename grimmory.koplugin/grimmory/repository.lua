@@ -195,7 +195,8 @@ end
 -- Delete data that is already on Grimmory and no longer needed locally:
 -- sent events older than the cutoff (keeping each book's newest session,
 -- which progress checks read), sessions left empty, and rows for book files
--- that no longer exist and have nothing left to send.
+-- that no longer exist and either have nothing left to send or were never
+-- matched to Grimmory (matching needs the file, so they never can be).
 ---@param cutoff number events created before this timestamp may go
 ---@param file_exists fun(path: string): boolean
 ---@return boolean ok
@@ -235,11 +236,11 @@ function GrimmoryLocalRepository:pruneOldData(cutoff, file_exists)
         result.sessions = changes()
 
         local missing = {}
-        local books_stmt = conn:prepare("SELECT id, book_path FROM book")
+        local books_stmt = conn:prepare("SELECT id, book_path, grimmory_id FROM book")
         local row = books_stmt:step()
         while row do
             if not file_exists(tostring(row[2])) then
-                table.insert(missing, tonumber(row[1]))
+                table.insert(missing, { id = tonumber(row[1]), unmatched = row[3] == nil })
             end
             row = books_stmt:step()
         end
@@ -257,8 +258,9 @@ function GrimmoryLocalRepository:pruneOldData(cutoff, file_exists)
             conn:prepare("DELETE FROM book WHERE id = ?"),
         }
 
-        for _, book_id in ipairs(missing) do
-            local unsent = tonumber(unsent_stmt:reset():bind(book_id):step()[1]) or 0
+        for _, book in ipairs(missing) do
+            local book_id = book.id
+            local unsent = book.unmatched and 0 or tonumber(unsent_stmt:reset():bind(book_id):step()[1]) or 0
             if unsent == 0 then
                 for _, stmt in ipairs(delete_statements) do
                     stmt:reset():bind(book_id):step()
