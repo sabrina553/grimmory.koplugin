@@ -95,6 +95,7 @@ end
 ---@field shelves number[]
 ---@field metadata BookMetadata
 ---@field primary_file BookFile | nil
+---@field last_read_time number | nil
 
 ---@class GrimmoryAnnotation
 ---@field id number | nil
@@ -140,6 +141,7 @@ local function parse_book(book)
     return {
         id = from_json_number(book.id),
         added_on = from_json_iso8601(book["addedOn"]),
+        last_read_time = from_json_iso8601(book["lastReadTime"]),
         shelves = shelves,
         metadata = metadata,
         primary_file = primary_file
