@@ -5,3 +5,4 @@ fix/sync-wifi-before-connectivity-check
 fix/wifi-ebusy-pending-connection
 fix/merge-stale-book-rows
 fix/skip-progress-without-reading
+fix/download-partial-files
