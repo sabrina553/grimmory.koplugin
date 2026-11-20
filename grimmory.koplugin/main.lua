@@ -432,7 +432,7 @@ function Grimmory:refreshUI()
     self.ui:reloadDocument()
 end
 
-function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
+function Grimmory:onGrimmorySync(verbose, book_path, refresh_book, check_every_book)
     -- Tell everything to flush so we have data available for our sync
     UIManager:broadcastEvent(Event:new("FlushSettings"))
 
@@ -500,7 +500,7 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
                 if book_path then
                     self.synchronizer:synchronizeBook(book_path, refresh_book, progress_callback)
                 else
-                    self.synchronizer:synchronizeAll(progress_callback)
+                    self.synchronizer:synchronizeAll(progress_callback, check_every_book)
                 end
             end,
             function(progress)

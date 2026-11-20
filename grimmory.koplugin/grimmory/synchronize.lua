@@ -694,21 +694,33 @@ function GrimmorySynchronize:refreshBook(book_path, book_id, grimmory_id)
     return true, book_id
 end
 
--- Grimmory updates lastReadTime whenever progress is saved (including
--- through the KOReader sync API), so an unchanged value means there is no
--- new progress to pull.
+-- What the book list tells us about a book. Grimmory updates lastReadTime
+-- whenever progress is saved through its own reader or the KOReader sync
+-- API; the KOReader percentage also catches progress copied over from Kobo
+-- sync, and file size or cover time hint that the file itself was rewritten.
+---@param book Book
+---@return table<string, number>
+local function getRemoteMarkers(book)
+    return {
+        ["remote-read"] = book.last_read_time or 0,
+        ["remote-percent"] = math.floor((book.koreader_percentage or 0) * 10000 + 0.5),
+        ["remote-size"] = book.file_size_kb or 0,
+        ["remote-cover"] = book.cover_updated_on or 0,
+    }
+end
+
 ---@param book_id integer | nil
 ---@param book Book
 ---@return boolean
 function GrimmorySynchronize:shouldPullProgress(book_id, book)
-    if not book_id then
+    if self.check_every_book or not book_id then
         return true
     end
 
-    local pulled_ok, last_pulled_at = self.repository:getBookSyncTimestamp(book_id, "progress-pull")
-    local read_ok, known_read_time = self.repository:getBookSyncTimestamp(book_id, "remote-read")
+    local statuses_ok, statuses = self.repository:getBookSyncStatuses(book_id)
+    local last_pulled_at = statuses["progress-pull"] or 0
 
-    if not pulled_ok or not read_ok or last_pulled_at == 0 then
+    if not statuses_ok or last_pulled_at == 0 then
         return true
     end
 
@@ -719,14 +731,21 @@ function GrimmorySynchronize:shouldPullProgress(book_id, book)
         return true
     end
 
-    return (book.last_read_time or 0) > known_read_time
+    for marker, value in pairs(getRemoteMarkers(book)) do
+        if (statuses[marker] or 0) ~= value then
+            return true
+        end
+    end
+
+    return false
 end
 
 ---@param book_id integer
 ---@param book Book
 function GrimmorySynchronize:recordProgressPull(book_id, book)
-    self.repository:updateBookSyncTimestamp(book_id, "progress-pull", os.time())
-    self.repository:updateBookSyncTimestamp(book_id, "remote-read", book.last_read_time or 0)
+    local statuses = getRemoteMarkers(book)
+    statuses["progress-pull"] = os.time()
+    self.repository:updateBookSyncStatuses(book_id, statuses)
 end
 
 ---@param book Book
@@ -932,7 +951,10 @@ function GrimmorySynchronize:checkForHealthyServer()
     return true
 end
 
-function GrimmorySynchronize:synchronizeAll(callback)
+---@param check_every_book boolean | nil look up progress for every book, not only changed ones
+function GrimmorySynchronize:synchronizeAll(callback, check_every_book)
+    self.check_every_book = check_every_book == true
+
     if not self:checkForHealthyServer() then
         return error("Cannot connect to valid server")
     end

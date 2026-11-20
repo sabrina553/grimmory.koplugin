@@ -25,11 +25,14 @@ describe("GrimmorySynchronize progress pull skipping", function()
         status = {}
         synchronizer = setmetatable({
             repository = {
-                getBookSyncTimestamp = function(_, id, sync_type)
-                    return true, status[id .. sync_type] or 0
+                getBookSyncStatuses = function(_, id)
+                    return true, status[id] or {}
                 end,
-                updateBookSyncTimestamp = function(_, id, sync_type, timestamp)
-                    status[id .. sync_type] = timestamp
+                updateBookSyncStatuses = function(_, id, statuses)
+                    status[id] = status[id] or {}
+                    for sync_type, value in pairs(statuses) do
+                        status[id][sync_type] = value
+                    end
                 end,
             },
         }, { __index = GrimmorySynchronize })
@@ -63,7 +66,29 @@ describe("GrimmorySynchronize progress pull skipping", function()
 
     it("pulls again once the last pull is over a week old", function()
         synchronizer:recordProgressPull(book_id, { last_read_time = 1000 })
-        status[book_id .. "progress-pull"] = now - 7 * 24 * 60 * 60 - 1
+        status[book_id]["progress-pull"] = now - 7 * 24 * 60 * 60 - 1
+
+        assert.is_true(synchronizer:shouldPullProgress(book_id, { last_read_time = 1000 }))
+    end)
+
+    it("pulls when the KOReader percentage changed without new reading time", function()
+        synchronizer:recordProgressPull(book_id, { last_read_time = 1000, koreader_percentage = 0.25 })
+
+        assert.is_true(synchronizer:shouldPullProgress(book_id, { last_read_time = 1000, koreader_percentage = 0.5 }))
+    end)
+
+    it("pulls when the file size or cover time changed", function()
+        local book = { last_read_time = 1000, file_size_kb = 512, cover_updated_on = 50 }
+        synchronizer:recordProgressPull(book_id, book)
+
+        assert.is_true(synchronizer:shouldPullProgress(book_id, { last_read_time = 1000, file_size_kb = 513, cover_updated_on = 50 }))
+        assert.is_true(synchronizer:shouldPullProgress(book_id, { last_read_time = 1000, file_size_kb = 512, cover_updated_on = 60 }))
+        assert.is_false(synchronizer:shouldPullProgress(book_id, book))
+    end)
+
+    it("pulls every book during a full sync", function()
+        synchronizer:recordProgressPull(book_id, { last_read_time = 1000 })
+        synchronizer.check_every_book = true
 
         assert.is_true(synchronizer:shouldPullProgress(book_id, { last_read_time = 1000 }))
     end)
