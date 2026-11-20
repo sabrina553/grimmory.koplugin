@@ -154,6 +154,31 @@ function GrimmoryLocalRepository:upsertBook(book_path, grimmory_id)
 
     local partial_md5 = util.partialMD5(absolute_book_path)
 
+    -- Most calls are for books already recorded. Even no-op write statements
+    -- cost a commit on e-reader flash (~25 ms each), so look first and only
+    -- open for writing when something actually changes.
+    local found_ok, existing = with_database(
+        self.database_path,
+        function(conn)
+            local stmt = conn:prepare([[
+                SELECT id, grimmory_id FROM book WHERE book_path = ? AND partial_md5 = ?
+            ]])
+            stmt:bind(absolute_book_path, partial_md5)
+            local row = stmt:step()
+            stmt:close()
+
+            if not row then
+                return nil
+            end
+
+            return { id = tonumber(row[1]), grimmory_id = tonumber(row[2]) }
+        end
+    )
+
+    if found_ok and existing and (grimmory_id == nil or grimmory_id == existing.grimmory_id) then
+        return true, existing.id, existing.grimmory_id
+    end
+
     local ok, book = with_database(
         self.database_path,
         function(conn)
