@@ -18,3 +18,4 @@ fix/stop-sync-on-restart
 fix/iso8601-time-zones
 feat/prune-database
 fix/advance-past-skipped-sessions
+perf/shared-db-connection
