@@ -6,6 +6,7 @@ local ltn12 = require("ltn12")
 
 local PluginMetadata = require("grimmory/plugin_metadata")
 local GrimmoryLogger = require("grimmory/logger")
+local TimeUtil = require("grimmory/time_util")
 
 local logger = GrimmoryLogger:new()
 
@@ -36,39 +37,8 @@ local function from_json_bool(value, default_value)
     return value == true
 end
 
----@param timestamp number
-local function to_iso8601(timestamp)
-    if timestamp == nil then
-        return nil
-    end
-
-    local parsed = os.date("!*t", timestamp)
-    return string.format(
-        "%04d-%02d-%02dT%02d:%02d:%02dZ",
-        parsed.year,
-        parsed.month,
-        parsed.day,
-        parsed.hour,
-        parsed.min,
-        parsed.sec
-    )
-end
-
----@param value string
-local function from_iso8601(value)
-    local year, month, day, hour, min, sec = value:match(
-        "(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)"
-    )
-
-    return os.time({
-        year = year,
-        month = month,
-        day = day,
-        hour = hour,
-        min = min,
-        sec = sec
-    })
-end
+local to_iso8601 = TimeUtil.toISO8601
+local from_iso8601 = TimeUtil.fromISO8601
 
 local function from_json_iso8601(value)
     value = from_json_string(value)
