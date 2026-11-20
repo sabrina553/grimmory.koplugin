@@ -85,25 +85,40 @@ function GrimmorySynchronize:pushBookSessions(book_id, callback)
 
     local sessions = self.repository:getPendingSessions(book_id)
 
-    for _, session in ipairs(sessions) do
+    -- Skipped sessions move the "sent up to" marker too, or they stay pending
+    -- for ever and are re-checked on every sync. Only finished sessions count:
+    -- the newest one may still be growing while its book is open.
+    local skipped_until = nil
+    local function skip(index, session)
+        local finished = index < #sessions
+            or os.time() - session.end_time > self.repository.SESSION_COLLAPSE_THRESHOLD
+        if finished then
+            skipped_until = session.end_time
+        end
+        callback({
+            state = "session-skip",
+            bookPath = session.book_path,
+            since = session.end_time,
+        })
+    end
+    local function saveSkippedUntil()
+        if skipped_until then
+            self.repository:updateBookSyncTimestamp(book_id, "sessions", skipped_until)
+            skipped_until = nil
+        end
+    end
+
+    for index, session in ipairs(sessions) do
         local total_seconds = session.end_time - session.start_time
         local total_pages = session.end_page - session.start_page + 1
 
         if total_seconds < threshold_seconds then
             logger:info("Skipped session below time threshold for book", book_id)
-            callback({
-                state = "session-skip",
-                bookPath = session.book_path,
-                since = session.end_time,
-            })
+            skip(index, session)
 
         elseif total_pages < threshold_pages then
             logger:info("Skipped session below page threshold for book", book_id)
-            callback({
-                state = "session-skip",
-                bookPath = session.book_path,
-                since = session.end_time,
-            })
+            skip(index, session)
 
         elseif session.grimmory_id == nil then
             logger:err("Session failed recording with error for book: ", book_id, " - ", "No Grimmory ID")
@@ -111,6 +126,7 @@ function GrimmorySynchronize:pushBookSessions(book_id, callback)
                 state = "session-error",
                 bookPath = session.book_path,
             })
+            saveSkippedUntil()
 
             -- If an error happens for this session we bail early so
             -- retries can happen again later
@@ -146,6 +162,7 @@ function GrimmorySynchronize:pushBookSessions(book_id, callback)
                     since = session.end_time,
                 })
 
+                skipped_until = nil
                 self.repository:updateBookSyncTimestamp(book_id, "sessions", session.end_time)
             else
                 logger:err("Session failed recording with error for book: ", book_id, " - ", body)
@@ -154,6 +171,7 @@ function GrimmorySynchronize:pushBookSessions(book_id, callback)
                     bookPath = session.book_path,
                     since = session.end_time,
                 })
+                saveSkippedUntil()
 
                 -- If an error happens for this session we bail early so
                 -- retries can happen again later
@@ -161,6 +179,8 @@ function GrimmorySynchronize:pushBookSessions(book_id, callback)
             end
         end
     end
+
+    saveSkippedUntil()
 end
 
 ---@param book_path string
