@@ -714,8 +714,10 @@ function GrimmoryAPI:getReadingProgress(username, auth_key, book_md5)
     )
 
     if code == 404 then
-        -- With a 404 we can just say there's no progress
-        return true, nil
+        -- The server answers 404 both when it has no progress and when it
+        -- has no book with this hash; only the latter means the file changed.
+        local unknown_book = type(body) == "string" and body:find("^Book not found for hash") ~= nil
+        return true, nil, unknown_book
     end
 
     if not ok or not body or type(body) == "string" then

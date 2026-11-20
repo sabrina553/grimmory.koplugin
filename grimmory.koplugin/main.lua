@@ -495,6 +495,8 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
         -- In the future, we should limit what we sync
         -- to current or recent books.  For now, we sync everything.
 
+        self.synchronizer.open_book_path = self.ui and self.ui.document and self.ui.document.file
+
         local ok, result = run(
             function(progress_callback)
                 if book_path then
