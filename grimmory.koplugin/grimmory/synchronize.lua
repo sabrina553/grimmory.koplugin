@@ -833,12 +833,13 @@ function GrimmorySynchronize:pullBooks(callback)
                     return
                 end
 
-                local partial_md5 = util.partialMD5(path)
-                local found_ok, _, grimmory_id = self.repository:findBookByFile(path, partial_md5)
+                -- Look up by path only: a file whose hash changed since it was
+                -- recorded is still the same book and must still be removed.
+                local found_ok, _, grimmory_id = self.repository:findBookByPath(path)
 
                 if not found_ok or not grimmory_id then
                     -- Skip file, not tracked in database for some reason
-                    logger:dbg("Skipping file removal, not in database:", path, partial_md5)
+                    logger:dbg("Skipping file removal, not in database:", path)
                     return
                 end
 
@@ -847,7 +848,7 @@ function GrimmorySynchronize:pullBooks(callback)
                     return
                 end
 
-                logger:dbg("Book removed from upstream:", path)
+                logger:info("Book removed from upstream:", path)
 
                 if self.settings:getDownloadRemoveBooks() then
                     self:removeBook(path)
