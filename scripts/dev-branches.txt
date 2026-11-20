@@ -15,3 +15,4 @@ chore/clearer-sync-names
 perf/faster-book-pull
 fix/remove-books-with-changed-hash
 fix/stop-sync-on-restart
+fix/iso8601-time-zones
