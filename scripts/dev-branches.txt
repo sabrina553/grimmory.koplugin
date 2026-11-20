@@ -17,3 +17,4 @@ fix/remove-books-with-changed-hash
 fix/stop-sync-on-restart
 fix/iso8601-time-zones
 feat/prune-database
+fix/advance-past-skipped-sessions
