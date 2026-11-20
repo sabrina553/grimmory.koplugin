@@ -10,3 +10,4 @@ fix/reuse-existing-book-path
 feat/refresh-changed-books
 fix/partial-sync-reporting
 fix/push-progress-event-name
+feat/skip-unchanged-progress-pulls
