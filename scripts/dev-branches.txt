@@ -13,3 +13,4 @@ fix/push-progress-event-name
 feat/skip-unchanged-progress-pulls
 chore/clearer-sync-names
 perf/faster-book-pull
+fix/remove-books-with-changed-hash
