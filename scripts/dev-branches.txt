@@ -1,0 +1,3 @@
+# Branches merged into `dev` by scripts/rebuild-dev.sh, in this order.
+# One per line. Remove a branch once upstream has merged it.
+# `dev-tooling` is always merged first and needn't be listed.
