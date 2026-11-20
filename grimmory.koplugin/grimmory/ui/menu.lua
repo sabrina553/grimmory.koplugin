@@ -317,7 +317,7 @@ function GrimmoryMenu:getTopMenu()
         table.insert(
             menu, 2,
             {
-                text = _("Full Sync (Check Every Book)"),
+                text = _("Sync Library (Check All Books)"),
                 help_text = _("Look up reading progress for every book instead of only those Grimmory reports as changed. Slower; use it if something looks out of date."),
                 enabled_func = function()
                     return self.settings:getBaseUri() ~= ""
