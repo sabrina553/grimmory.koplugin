@@ -9,3 +9,4 @@ fix/download-partial-files
 fix/reuse-existing-book-path
 feat/refresh-changed-books
 fix/partial-sync-reporting
+fix/push-progress-event-name
