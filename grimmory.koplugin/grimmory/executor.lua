@@ -9,6 +9,9 @@ local GrimmoryLogger = require("grimmory/logger")
 
 local logger = GrimmoryLogger:new()
 
+-- Returned by NetworkMgr:requestToTurnOnWifi while a connection is pending.
+local EBUSY = 16
+
 local function readFromFD(fd)
     local ffi_buffer = ffi.new('char[?]', 1, {0})
     local data = {}
@@ -163,8 +166,6 @@ local function enable_wifi(timeout)
     local wifi_needs_disable = false
 
     if not NetworkManager:isWifiOn() then
-        wifi_needs_disable = true
-
         local result = NetworkManager:requestToTurnOnWifi(
             function()
                 logger:dbg("Wifi is active, waiting for connecitivty")
@@ -177,15 +178,17 @@ local function enable_wifi(timeout)
             logger:err("Failed to turn on wifi: Unknown")
 
             -- Clean up the connection the same as `NetworkManager:enableWifi` would
-            pcall(NetworkManager, NetworkManager._abortWifiConnection, NetworkManager)
+            pcall(NetworkManager._abortWifiConnection, NetworkManager)
             return false
         end
 
-        -- "EBUSY" (16) means we are either waiting for connectivity
-        -- or just tried to disable?
-        if result == 16 then
-            logger:err("Failed to turn on wifi: EBUSY")
-            return false
+        if result == EBUSY then
+            -- Someone else (such as KOReader restoring wifi on resume) is
+            -- already connecting, so wait for that rather than give up.
+            -- It isn't ours, so leave it on afterwards.
+            logger:dbg("Wifi connection already in progress, waiting for it")
+        else
+            wifi_needs_disable = true
         end
     end
 
@@ -197,6 +200,18 @@ local function enable_wifi(timeout)
         -- Give control back to UIManager
         logger:dbg("Waiting...")
         coroutine.yield()
+    end
+
+    if wifi_needs_disable then
+        -- requestToTurnOnWifi marks a connection as pending until KOReader's
+        -- own connectivity check clears it, which we don't use. Left set,
+        -- every later attempt returns EBUSY. See NetworkMgr:connectivityCheck
+        -- in frontend/ui/network/manager.lua.
+        if connectivity_result then
+            NetworkManager.pending_connection = false
+        else
+            pcall(NetworkManager._abortWifiConnection, NetworkManager)
+        end
     end
 
     logger:dbg("Continuing after wifi")
