@@ -488,13 +488,22 @@ end
 function GrimmorySynchronize:getBookDownloadPath(book)
     local existing_book_ok, existing_books = self.repository:findBooksByGrimmoryId(book.id)
     if existing_book_ok then
+        -- A file whose hash has drifted is still this book: reuse its path
+        -- rather than downloading a second copy under a fallback name.
+        local changed_book_path = nil
+
         for _, local_book in ipairs(existing_books) do
-            if (
-                util.fileExists(local_book.book_path) and
-                util.partialMD5(local_book.book_path) == local_book.book_md5
-            ) then
-                return local_book.book_path
+            if util.fileExists(local_book.book_path) then
+                if util.partialMD5(local_book.book_path) == local_book.book_md5 then
+                    return local_book.book_path
+                end
+
+                changed_book_path = changed_book_path or local_book.book_path
             end
+        end
+
+        if changed_book_path then
+            return changed_book_path
         end
     end
 
