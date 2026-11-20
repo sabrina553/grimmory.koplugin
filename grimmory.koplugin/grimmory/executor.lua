@@ -66,9 +66,25 @@ local function writeObjectToFD(fd, obj)
     return true, nil
 end
 
+local function is_connected()
+    local ok, result = pcall(function()
+        return NetworkManager:isConnected()
+    end)
+
+    if not ok then
+        logger:err("Something went wrong checking wifi connectivity", result)
+        return true
+    end
+
+    return result
+end
+
 ---@class GrimmoryExecutor
 ---@field private running_subprocesses any[]
-local GrimmoryExecutor = {}
+local GrimmoryExecutor = {
+    -- Returned as the result of a run that never started for lack of a network.
+    NO_CONNECTIVITY = "no-connectivity",
+}
 
 function GrimmoryExecutor:new()
     local o = {}
@@ -238,6 +254,18 @@ function GrimmoryExecutor:background(callback, with_wifi)
             if was_terminated then
                 UIManager:allowStandby()
                 return false, "Termianted before starting subprocess"
+            end
+
+            -- Checked here rather than by the caller: only now has wifi had
+            -- the chance to be turned on. It also stays in the parent process,
+            -- as network management in a subprocess makes Android SIGABRT.
+            if not is_connected() then
+                logger:err("No connectivity, not starting subprocess")
+                UIManager:allowStandby()
+                if wifi_needs_disable then
+                    NetworkManager:turnOffWifi()
+                end
+                return false, GrimmoryExecutor.NO_CONNECTIVITY
             end
 
             local running_coroutine = coroutine.running()
