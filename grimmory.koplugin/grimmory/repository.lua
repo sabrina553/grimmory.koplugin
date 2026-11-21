@@ -794,6 +794,68 @@ function GrimmoryLocalRepository:getBookSyncTimestamp(book_id, sync_type)
     return true, timestamp
 end
 
+---@param book_id integer
+---@return boolean ok
+---@return table<string, number> statuses sync_type to last_synced_at
+function GrimmoryLocalRepository:getBookSyncStatuses(book_id)
+    local ok, statuses = with_database(
+        self.database_path,
+        function(conn)
+            local stmt = conn:prepare([[
+                SELECT sync_type, last_synced_at FROM book_sync_status WHERE book_id = ?
+            ]])
+            stmt:bind(book_id)
+
+            local result = {}
+            local row = stmt:step()
+            while row ~= nil do
+                result[tostring(row[1])] = tonumber(row[2]) or 0
+                row = stmt:step()
+            end
+            stmt:close()
+
+            return result
+        end
+    )
+
+    if not ok then
+        logger:err("Failed to get book sync statuses:", book_id, "-", statuses)
+        return false, {}
+    end
+
+    return true, statuses
+end
+
+---@param book_id integer
+---@param statuses table<string, number> sync_type to last_synced_at
+function GrimmoryLocalRepository:updateBookSyncStatuses(book_id, statuses)
+    local ok, message = with_database(
+        self.database_path,
+        function(conn)
+            conn:exec("BEGIN;")
+            local stmt = conn:prepare([[
+                INSERT INTO book_sync_status (book_id, sync_type, last_synced_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT (book_id, sync_type)
+                DO UPDATE SET last_synced_at = excluded.last_synced_at
+            ]])
+            for sync_type, value in pairs(statuses) do
+                stmt:reset():bind(book_id, sync_type, value)
+                stmt:step()
+            end
+            stmt:close()
+            conn:exec("COMMIT;")
+        end,
+        "rw"
+    )
+
+    if not ok then
+        logger:err("Failed to update book sync statuses:", book_id, "-", message)
+    end
+
+    return ok
+end
+
 ---@param with_sessions boolean
 ---@param with_progress boolean
 ---@return number[] book_ids
