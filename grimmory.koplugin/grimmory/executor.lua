@@ -153,6 +153,55 @@ local function release_wifi()
     end
 end
 
+-- PocketBook's stock turn-on calls the firmware's NetConnect(), which opens
+-- the firmware's own network picker when no saved network is in reach.
+-- Syncs must never prompt, so use NetConnectSilent() where the firmware has it.
+---@return boolean|nil connected nil when silent connecting isn't available here
+local function pocketbook_connect_silently()
+    if not Device:isPocketBook() then
+        return nil
+    end
+
+    local found, inkview = pcall(function()
+        local inkview = require("ffi/inkview")
+        -- Already declared if another plugin (e.g. ZenOS) got there first.
+        pcall(ffi.cdef, "int NetConnectSilent(const char *name);")
+        -- Errors here if this firmware doesn't have it.
+        local _ = inkview.NetConnectSilent
+        return inkview
+    end)
+
+    if not found then
+        logger:info("Silent WiFi connect not available, using the standard one")
+        return nil
+    end
+
+    inkview.WiFiPower(1)
+    local status = tonumber(inkview.NetConnectSilent(nil))
+
+    if status ~= ffi.C.NET_OK then
+        logger:info("Silent WiFi connect failed, status", status)
+        return false
+    end
+
+    -- The stock turn-on also starts a keep-alive ping so the firmware doesn't
+    -- drop WiFi during long syncs. It is private to that function, so borrow it.
+    local index = 1
+    while true do
+        local name, value = debug.getupvalue(NetworkManager.turnOnWifi, index)
+        if name == nil then
+            break
+        end
+        if name == "keepWifiAlive" then
+            pcall(value)
+            break
+        end
+        index = index + 1
+    end
+
+    return true
+end
+
 ---@return bool enabled_wifi
 local function enable_wifi(timeout)
     if timeout == nil then
@@ -204,27 +253,39 @@ local function enable_wifi(timeout)
     if not NetworkManager:isWifiOn() then
         wifi_needs_disable = true
 
-        local result = NetworkManager:requestToTurnOnWifi(
-            function()
-                logger:dbg("Wifi is active, waiting for connecitivty")
-            end
-        )
+        local silent_ok = pocketbook_connect_silently()
 
-        -- Explicit `false` means something went wrong trying
-        -- to turn on wifi - so we shouldn't try to turn it off again.
-        if result == false then
-            logger:err("Failed to turn on wifi: Unknown")
-
-            -- Clean up the connection the same as `NetworkManager:enableWifi` would
-            pcall(NetworkManager, NetworkManager._abortWifiConnection, NetworkManager)
+        if silent_ok == false then
+            -- No saved network in reach. Don't prompt: give up quietly
+            -- and let the caller try again later.
+            logger:info("No known network reachable, not prompting")
+            pcall(NetworkManager.turnOffWifi, NetworkManager)
             return false
         end
 
-        -- "EBUSY" (16) means we are either waiting for connectivity
-        -- or just tried to disable?
-        if result == 16 then
-            logger:err("Failed to turn on wifi: EBUSY")
-            return false
+        if silent_ok == nil then
+            local result = NetworkManager:requestToTurnOnWifi(
+                function()
+                    logger:dbg("Wifi is active, waiting for connecitivty")
+                end
+            )
+
+            -- Explicit `false` means something went wrong trying
+            -- to turn on wifi - so we shouldn't try to turn it off again.
+            if result == false then
+                logger:err("Failed to turn on wifi: Unknown")
+
+                -- Clean up the connection the same as `NetworkManager:enableWifi` would
+                pcall(NetworkManager, NetworkManager._abortWifiConnection, NetworkManager)
+                return false
+            end
+
+            -- "EBUSY" (16) means we are either waiting for connectivity
+            -- or just tried to disable?
+            if result == 16 then
+                logger:err("Failed to turn on wifi: EBUSY")
+                return false
+            end
         end
     end
 

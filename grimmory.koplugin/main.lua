@@ -192,6 +192,7 @@ function Grimmory:onExit()
 
     self.scheduler:clear()
     self.executor:clear()
+    self:cancelOfflineRetry()
 end
 
 function Grimmory:onSuspend()
@@ -418,6 +419,42 @@ function Grimmory:refreshUI()
     self.ui:reloadDocument()
 end
 
+-- Minutes between quiet retries of an automatic sync that found no network.
+local OFFLINE_RETRY_MINUTES = { 5, 10, 20 }
+
+function Grimmory:cancelOfflineRetry()
+    if self.offline_retry then
+        UIManager:unschedule(self.offline_retry)
+        self.offline_retry = nil
+    end
+
+    self.offline_retry_count = 0
+end
+
+---@param book_path string|nil
+function Grimmory:scheduleOfflineRetry(book_path)
+    local count = (self.offline_retry_count or 0) + 1
+    local minutes = OFFLINE_RETRY_MINUTES[count]
+
+    if minutes == nil then
+        logger:info("Still no connectivity, waiting for the next automatic sync")
+        self:cancelOfflineRetry()
+        return
+    end
+
+    if self.offline_retry then
+        UIManager:unschedule(self.offline_retry)
+    end
+
+    logger:info("No connectivity, retrying sync in", minutes, "minute(s)")
+    self.offline_retry_count = count
+    self.offline_retry = function()
+        self.offline_retry = nil
+        self:onGrimmorySync(false, book_path)
+    end
+    UIManager:scheduleIn(minutes * 60, self.offline_retry)
+end
+
 function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
     -- Tell everything to flush so we have data available for our sync
     UIManager:broadcastEvent(Event:new("FlushSettings"))
@@ -564,9 +601,15 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
                 end
             elseif result == GrimmoryExecutor.NO_CONNECTIVITY then
                 logger:err("Cannot sync without connectivity")
-                self.dialog_manager:toast(
-                    _("Failed to Synchronize with Grimmory: No Connectivity")
-                )
+
+                if verbose then
+                    self.dialog_manager:toast(
+                        _("Failed to Synchronize with Grimmory: No Connectivity")
+                    )
+                else
+                    -- Automatic syncs stay invisible: try again later instead.
+                    self:scheduleOfflineRetry(book_path)
+                end
             else
                 logger:err("Failed sync", result)
 
@@ -579,6 +622,8 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
 
             return
         end
+
+        self:cancelOfflineRetry()
 
         -- If we have any books downloaded we need to emit a refresh
         -- event so the file manager knows it should refresh
