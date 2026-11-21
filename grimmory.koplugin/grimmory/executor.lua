@@ -157,6 +157,9 @@ end
 -- the firmware's own network picker when no saved network is in reach.
 -- Syncs must never prompt, so use NetConnectSilent() where the firmware has it.
 ---@return boolean|nil connected nil when silent connecting isn't available here
+-- Seconds to wait for the firmware's connect attempt before giving up.
+local SILENT_CONNECT_TIMEOUT = 60
+
 local function pocketbook_connect_silently()
     if not Device:isPocketBook() then
         return nil
@@ -176,8 +179,51 @@ local function pocketbook_connect_silently()
         return nil
     end
 
-    inkview.WiFiPower(1)
-    local status = tonumber(inkview.NetConnectSilent(nil))
+    -- The connect call blocks until the firmware gives up (about 30 s with no
+    -- saved network in reach), so run it in a child process and keep the
+    -- reader responsive meanwhile. Same pattern as ZenOS's wifi worker.
+    -- WARNING: this relies on the firmware accepting the connect call from a
+    -- forked process. If wifi misbehaves after a sync (stays off, or the
+    -- status bar disagrees), suspect this first; see the project notes.
+    local running_coroutine = coroutine.running()
+    local pid, read_fd = ffiutil.runInSubProcess(function(_, write_fd)
+        inkview.WiFiPower(1)
+        local child_status = tonumber(inkview.NetConnectSilent(nil))
+        ffiutil.writeToFD(write_fd, tostring(child_status), true)
+    end, true)
+
+    if not pid then
+        logger:err("Could not start the WiFi connect process", read_fd)
+        return false
+    end
+
+    local status = nil
+    local polls = 0
+    local poll
+    poll = function()
+        polls = polls + 1
+
+        if not ffiutil.isSubProcessDone(pid) then
+            if polls >= SILENT_CONNECT_TIMEOUT * 4 then
+                logger:err("WiFi connect process timed out, stopping it")
+                -- Negative pid: the whole process group, as it was started with one.
+                pcall(ffi.C.kill, -pid, 9)
+                pcall(ffi.C.kill, pid, 9)
+                ffiutil.isSubProcessDone(pid, true)
+            else
+                UIManager:scheduleIn(0.25, poll)
+                return
+            end
+        else
+            status = tonumber(readFromFD(read_fd))
+        end
+
+        ffi.C.close(read_fd)
+        coroutine.resume(running_coroutine)
+    end
+
+    UIManager:scheduleIn(0.25, poll)
+    coroutine.yield()
 
     if status ~= ffi.C.NET_OK then
         logger:info("Silent WiFi connect failed, status", status)
