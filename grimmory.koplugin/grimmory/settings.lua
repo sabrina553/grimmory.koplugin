@@ -32,6 +32,7 @@ local logger = GrimmoryLogger:new()
 ---@field sync_frequency number
 ---@field sync_shelves boolean
 ---@field download_remove_books boolean
+---@field download_refresh_changed_books boolean
 ---@field sync_target_shelves GrimmoryTargetShelf[]
 ---@field sync_download_directory string
 ---@field sync_reading_sessions boolean
@@ -59,6 +60,7 @@ local DEFAULTS = {
     sync_frequency = 120,
     sync_shelves = true,
     download_remove_books = false,
+    download_refresh_changed_books = false,
     sync_target_shelves = {},
     sync_download_directory = "grimmory/",
     sync_reading_sessions = true,
@@ -227,6 +229,19 @@ end
 
 function GrimmorySettings:toggleDownloadRemoveBooks()
     self.data.download_remove_books = not self:getDownloadRemoveBooks()
+    self:write()
+end
+
+function GrimmorySettings:getDownloadRefreshChangedBooks()
+    if self.data.download_refresh_changed_books == nil then
+        return DEFAULTS.download_refresh_changed_books
+    end
+
+    return self.data.download_refresh_changed_books
+end
+
+function GrimmorySettings:toggleDownloadRefreshChangedBooks()
+    self.data.download_refresh_changed_books = not self:getDownloadRefreshChangedBooks()
     self:write()
 end
 
