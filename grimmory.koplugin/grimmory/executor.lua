@@ -199,22 +199,26 @@ local function pocketbook_connect_silently()
 
     local status = nil
     local polls = 0
+    local timed_out = false
     local poll
     poll = function()
         polls = polls + 1
 
         if not ffiutil.isSubProcessDone(pid) then
-            if polls >= SILENT_CONNECT_TIMEOUT * 4 then
+            if not timed_out and polls >= SILENT_CONNECT_TIMEOUT * 4 then
                 logger:err("WiFi connect process timed out, stopping it")
+                timed_out = true
                 -- Negative pid: the whole process group, as it was started with one.
                 pcall(ffi.C.kill, -pid, 9)
                 pcall(ffi.C.kill, pid, 9)
-                ffiutil.isSubProcessDone(pid, true)
-            else
-                UIManager:scheduleIn(0.25, poll)
-                return
             end
-        else
+            -- Keep polling until the process has really gone, even after
+            -- killing it, so nothing touches the radio while it still might.
+            UIManager:scheduleIn(0.25, poll)
+            return
+        end
+
+        if not timed_out then
             status = tonumber(readFromFD(read_fd))
         end
 
@@ -227,6 +231,10 @@ local function pocketbook_connect_silently()
 
     if status ~= ffi.C.NET_OK then
         logger:info("Silent WiFi connect failed, status", status)
+        -- The connect process has finished by now, so it is safe to power the
+        -- radio back down; left on it would drain the battery until next time.
+        pcall(NetworkManager.turnOffWifi, NetworkManager)
+        pcall(inkview.WiFiPower, 0)
         return false
     end
 
