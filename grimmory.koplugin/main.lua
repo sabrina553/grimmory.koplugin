@@ -63,6 +63,20 @@ function Grimmory:onDispatcherRegisterActions()
     general = true,
   })
 
+  Dispatcher:registerAction("grimmory_sync_check_all_foreground", {
+    category = "none",
+    event = "GrimmorySyncCheckAllForeground",
+    title = _("Grimmory: Sync Library (Check All Books)"),
+    general = true,
+  })
+
+  Dispatcher:registerAction("grimmory_sync_check_all_background", {
+    category = "none",
+    event = "GrimmorySyncCheckAllBackground",
+    title = _("Grimmory: Sync Library (Check All Books) in Background"),
+    general = true,
+  })
+
   Dispatcher:registerAction("grimmory_sync_open_book_foreground", {
     category = "none",
     event = "GrimmorySyncOpenBookForeground",
@@ -385,6 +399,18 @@ end
 
 function Grimmory:onGrimmorySyncForegound()
     return self:onGrimmorySync(true)
+end
+
+function Grimmory:onGrimmorySyncCheckAllForeground()
+    return self:onGrimmorySync(true, nil, nil, true)
+end
+
+function Grimmory:onGrimmorySyncCheckAllBackground()
+    -- Say so if a sync is already running, where that feature is present.
+    if self.onGrimmoryWatchSync and self:onGrimmoryWatchSync() then
+        return true
+    end
+    return self:onGrimmorySync(false, nil, nil, true)
 end
 
 function Grimmory:onGrimmorySyncBackground()
