@@ -179,4 +179,143 @@ function KOReaderStatistics.renameBook(md5, old_title, old_authors, new_title, n
     end)
 end
 
+
+-- Case, spacing and punctuation vary between downloads of the same book
+-- ("S.A. Chakraborty" / "S. A. Chakraborty"), so compare without them.
+local function normalise(text)
+    return (tostring(text or "")):lower():gsub("[^%w]", "")
+end
+
+---@class GrimmorySplitBook
+---@field title string
+---@field keep_id number
+---@field merge_ids number[]
+
+-- Finds books whose reading history is split over several records because
+-- the file was replaced. A group is only merged when exactly one record's
+-- file is still on the device (or none is), so two copies kept on purpose,
+-- and the book that is open, keep their own records.
+---@param present_md5 table<string, boolean> md5s of book files on the device
+---@return boolean ok
+---@return GrimmorySplitBook[] | string groups_or_error
+function KOReaderStatistics.findSplitBooks(present_md5, database_path)
+    database_path = database_path or KOReaderStatistics.getDatabasePath()
+
+    if not util.fileExists(database_path) then
+        return true, {}
+    end
+
+    local open_ok, conn = pcall(SQ3.open, database_path, "ro")
+    if not open_ok or not conn then
+        return false, "Could not open statistics database: " .. tostring(conn)
+    end
+
+    local read_ok, rows = pcall(function()
+        return conn:exec("SELECT id, title, authors, md5, last_open FROM book ORDER BY last_open DESC, id DESC;")
+    end)
+    conn:close()
+
+    if not read_ok then
+        return false, tostring(rows)
+    end
+
+    local groups, order = {}, {}
+    if rows and rows[1] then
+        for i = 1, #rows[1] do
+            local key = normalise(rows[2][i]) .. "|" .. normalise(rows[3][i])
+            if not groups[key] then
+                groups[key] = { title = rows[2][i], records = {} }
+                table.insert(order, key)
+            end
+            table.insert(groups[key].records, {
+                id = tonumber(rows[1][i]),
+                present = present_md5[rows[4][i]] == true,
+            })
+        end
+    end
+
+    local split_books = {}
+    for _, key in ipairs(order) do
+        local group = groups[key]
+        -- Untitled records can't be told apart, so leave them alone.
+        if #group.records > 1 and key ~= "|" and key:sub(1, 1) ~= "|" then
+            local present = {}
+            for _, record in ipairs(group.records) do
+                if record.present then
+                    table.insert(present, record)
+                end
+            end
+
+            if #present <= 1 then
+                -- Newest first, so with no file left the latest record is kept.
+                local keep = present[1] or group.records[1]
+                local merge_ids = {}
+                for _, record in ipairs(group.records) do
+                    if record.id ~= keep.id then
+                        table.insert(merge_ids, record.id)
+                    end
+                end
+                table.insert(split_books, { title = group.title, keep_id = keep.id, merge_ids = merge_ids })
+            end
+        end
+    end
+
+    return true, split_books
+end
+
+---@param split_books GrimmorySplitBook[]
+---@return boolean ok
+---@return string | number merged_records_or_error
+function KOReaderStatistics.mergeSplitBooks(split_books, database_path)
+    database_path = database_path or KOReaderStatistics.getDatabasePath()
+
+    return changeWithBackup(database_path, function(conn)
+        local merged = 0
+        for _, book in ipairs(split_books) do
+            for _, merge_id in ipairs(book.merge_ids) do
+                mergeBookInto(conn, merge_id, book.keep_id)
+                merged = merged + 1
+            end
+        end
+        return merged
+    end)
+end
+
+
+-- md5s of the book files on the device: everything under the download
+-- directory, plus books opened from elsewhere (from KOReader's history).
+---@param download_directory string|nil
+---@return table<string, boolean>
+function KOReaderStatistics.findPresentBooks(download_directory)
+    local DocSettings = require("docsettings")
+    local DocumentRegistry = require("document/documentregistry")
+    local ReadHistory = require("readhistory")
+
+    local present = {}
+
+    if download_directory and download_directory ~= "" then
+        util.findFiles(download_directory, function(path)
+            if DocumentRegistry:hasProvider(path) then
+                local md5 = util.partialMD5(path)
+                if md5 then
+                    present[md5] = true
+                end
+            end
+        end)
+    end
+
+    for _, entry in ipairs(ReadHistory.hist or {}) do
+        if entry.file and util.fileExists(entry.file) then
+            local md5 = DocSettings:hasSidecarFile(entry.file)
+                and DocSettings:open(entry.file):readSetting("partial_md5_checksum")
+                or util.partialMD5(entry.file)
+            if md5 then
+                present[md5] = true
+            end
+        end
+    end
+
+    return present
+end
+
 return KOReaderStatistics
