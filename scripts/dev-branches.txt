@@ -28,3 +28,4 @@ fix/silent-wifi
 chore/settings-submenu
 fix/keep-menu-open
 feat/background-wifi-connect
+fix/stats-follow-metadata-changes
