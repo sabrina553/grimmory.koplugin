@@ -29,3 +29,4 @@ chore/settings-submenu
 fix/keep-menu-open
 feat/background-wifi-connect
 fix/stats-follow-metadata-changes
+feat/merge-split-statistics
