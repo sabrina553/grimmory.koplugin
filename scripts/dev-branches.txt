@@ -19,3 +19,5 @@ fix/iso8601-time-zones
 feat/prune-database
 fix/advance-past-skipped-sessions
 perf/shared-db-connection
+fix/reload-only-when-changed
+fix/shared-wifi-between-jobs
