@@ -24,3 +24,6 @@ fix/shared-wifi-between-jobs
 feat/sync-in-progress-feedback
 feat/hold-sleep-during-sync
 feat/retry-interrupted-sync
+fix/silent-wifi
+chore/settings-submenu
+fix/keep-menu-open
