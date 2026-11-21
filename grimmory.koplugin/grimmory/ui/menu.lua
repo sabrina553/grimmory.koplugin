@@ -319,9 +319,9 @@ function GrimmoryMenu:getTopMenu()
         table.insert(
             menu, 1,
             {
-                text = _("Sync in progress…"),
-                enabled_func = function()
-                    return false
+                text = _("Sync in progress… (tap to see the result when done)"),
+                callback = function()
+                    UIManager:broadcastEvent(Event:new("GrimmoryWatchSync"))
                 end,
             }
         )

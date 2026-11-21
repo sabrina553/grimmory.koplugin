@@ -388,6 +388,11 @@ function Grimmory:onGrimmorySyncForegound()
 end
 
 function Grimmory:onGrimmorySyncBackground()
+    -- A background request still comes from the user, so if a sync is
+    -- already running, say so rather than doing nothing.
+    if self:onGrimmoryWatchSync() then
+        return true
+    end
     return self:onGrimmorySync(false)
 end
 
@@ -396,7 +401,43 @@ function Grimmory:onGrimmorySyncOpenBookForeground()
 end
 
 function Grimmory:onGrimmorySyncOpenBookBackground()
+    if self:onGrimmoryWatchSync() then
+        return true
+    end
     return self:onGrimmorySyncOpenBook(false)
+end
+
+-- If a sync is running, tell the user and report its result when it
+-- finishes. Returns true when there was one to watch.
+function Grimmory:onGrimmoryWatchSync()
+    if not self.is_synchronizing then
+        return false
+    end
+
+    logger:info("Sync requested while one is running, reporting that one")
+    self.report_current_sync = true
+    self.dialog_manager:toast(
+        _("A sync is already in progress. You'll see the result when it finishes."),
+        4
+    )
+    return true
+end
+
+-- Close the main menu so a sync result isn't hidden behind it, and so the
+-- menu is rebuilt (without "Sync in progress") next time it's opened.
+function Grimmory:closeMainMenu()
+    local menu = self.ui and self.ui.menu
+    if menu == nil then
+        return
+    end
+
+    pcall(function()
+        if menu.onCloseReaderMenu then
+            menu:onCloseReaderMenu()
+        elseif menu.onCloseFileManagerMenu then
+            menu:onCloseFileManagerMenu()
+        end
+    end)
 end
 
 function Grimmory:onGrimmorySyncOpenBook(verbose)
@@ -439,13 +480,7 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
     -- Asked for by the user while another sync (such as one started on
     -- boot or on suspend) is running: say so, and report that sync's
     -- result when it finishes instead of starting a second one.
-    if verbose and self.is_synchronizing then
-        logger:info("Sync requested while one is running, reporting that one")
-        self.report_current_sync = true
-        self.dialog_manager:toast(
-            _("A sync is already in progress. You'll see the result when it finishes."),
-            4
-        )
+    if verbose and self:onGrimmoryWatchSync() then
         return
     end
 
@@ -459,6 +494,7 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
         -- Results stay on screen until tapped, so they aren't missed.
         local function report(text)
             if verbose or self.report_current_sync then
+                self:closeMainMenu()
                 self.dialog_manager:toast(text, 0)
             end
         end
