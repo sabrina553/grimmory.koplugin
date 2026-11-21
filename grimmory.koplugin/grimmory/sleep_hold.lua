@@ -8,8 +8,11 @@ local logger = GrimmoryLogger:new()
 
 -- PocketBook firmware suspends on its own (auto-lock timer, power button) and
 -- drops wifi straight away, which UIManager:preventStandby() cannot stop.
--- hw_ban_suspend() delays that, so we renew a short ban while a sync runs; if
--- we stop renewing for any reason the ban lapses by itself.
+-- hw_ban_suspend() delays the suspend itself, so we renew a short ban while a
+-- sync runs; if we stop renewing for any reason the ban lapses by itself.
+-- It does not stop the auto-lock timer, so before the user locks we also
+-- restart that countdown with iv_rise_keylock_timer(), as a touch would
+-- (tested on a Verse Pro 2026-11-21: kept a 1-minute auto-lock off for 4 min).
 local BAN_SECONDS = 15
 local RENEW_SECONDS = 10
 -- Once the user locks the device, never hold it for longer than this.
@@ -36,10 +39,11 @@ local function getInkview()
     end
 
     local ok, lib = pcall(function()
-        ffi.cdef("void hw_ban_suspend(int seconds);")
+        ffi.cdef("void hw_ban_suspend(int seconds); void iv_rise_keylock_timer(void);")
         local loaded = ffi.load("inkview")
-        -- Index it now so a missing symbol fails here, not mid-sync.
+        -- Index them now so a missing symbol fails here, not mid-sync.
         local _ = loaded.hw_ban_suspend
+        _ = loaded.iv_rise_keylock_timer
         return loaded
     end)
 
@@ -67,6 +71,11 @@ local function renew()
     end
 
     pcall(inkview.hw_ban_suspend, BAN_SECONDS)
+
+    -- Only before a lock: once the user has locked, let it go through.
+    if self.suspended_at == nil then
+        pcall(inkview.iv_rise_keylock_timer)
+    end
     UIManager:scheduleIn(RENEW_SECONDS, renew)
 end
 
