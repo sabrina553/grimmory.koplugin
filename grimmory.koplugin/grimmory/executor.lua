@@ -160,7 +160,7 @@ end
 -- Seconds to wait for the firmware's connect attempt before giving up.
 local SILENT_CONNECT_TIMEOUT = 60
 
-local function pocketbook_connect_silently()
+local function run_silent_connect()
     if not Device:isPocketBook() then
         return nil
     end
@@ -254,6 +254,37 @@ local function pocketbook_connect_silently()
     end
 
     return true
+end
+
+-- Jobs waiting on the connect attempt already in progress, or nil if none is.
+local connect_waiters = nil
+
+-- Two jobs connecting at once start two firmware attempts that fight over the
+-- radio, and each turns wifi off when it fails. Later jobs wait and share the
+-- first attempt's result instead.
+---@return boolean|nil connected nil when silent connecting isn't available here
+local function pocketbook_connect_silently()
+    if connect_waiters ~= nil then
+        logger:dbg("WiFi connect already in progress, waiting for it")
+        table.insert(connect_waiters, coroutine.running())
+        return coroutine.yield()
+    end
+
+    connect_waiters = {}
+    local ok, result = pcall(run_silent_connect)
+    local waiters = connect_waiters
+    connect_waiters = nil
+
+    if not ok then
+        logger:err("Silent WiFi connect errored", result)
+        result = false
+    end
+
+    for _, waiter in ipairs(waiters) do
+        coroutine.resume(waiter, result)
+    end
+
+    return result
 end
 
 ---@return bool enabled_wifi
