@@ -27,3 +27,4 @@ feat/retry-interrupted-sync
 fix/silent-wifi
 chore/settings-submenu
 fix/keep-menu-open
+feat/background-wifi-connect
