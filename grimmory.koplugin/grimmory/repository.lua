@@ -327,6 +327,44 @@ function GrimmoryLocalRepository:updateBook(book_id, partial_md5)
 end
 
 ---@param book_path string
+---@return boolean ok
+---@return integer | nil book_id
+---@return integer | nil grimmory_id
+function GrimmoryLocalRepository:findBookByPath(book_path)
+    local absolute_book_path = ffiUtil.realpath(book_path) or book_path
+
+    local ok, book = with_database(
+        self.database_path,
+        function(conn)
+            -- Newest row wins, as older rows for a path are stale file versions.
+            local stmt = conn:prepare([[
+                SELECT id, grimmory_id FROM book WHERE book_path = ? ORDER BY id DESC LIMIT 1
+            ]])
+            stmt:bind(absolute_book_path)
+            local row = stmt:step()
+            stmt:close()
+
+            if not row then
+                return nil
+            end
+
+            return { id = tonumber(row[1]), grimmory_id = tonumber(row[2]) }
+        end
+    )
+
+    if not ok then
+        logger:err("Failed to find book by path:", absolute_book_path, "-", book)
+        return false, nil, nil
+    end
+
+    if not book then
+        return true, nil, nil
+    end
+
+    return true, book.id, book.grimmory_id
+end
+
+---@param book_path string
 ---@param partial_md5 string
 ---@return boolean ok
 ---@return integer | nil book_id
