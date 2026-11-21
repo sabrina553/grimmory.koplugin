@@ -311,7 +311,7 @@ function GrimmoryMenu:getDatabaseMenu()
             keep_menu_open = true,
             callback = function(touchmenu_instance)
                 UIManager:show(ConfirmBox:new({
-                    text = T(_("Remove sessions already sent to Grimmory that are older than %1 days?\n\nNothing still waiting to be sent is removed."), PRUNE_AFTER_DAYS),
+                    text = T(_("Prune old data?\n\nWhat it's for: Grimmory keeps a record of every reading session and every book it has seen. Over months this grows and slows syncs down. Pruning removes sessions already sent to Grimmory that are older than %1 days, and records of books no longer on this device.\n\nNothing still waiting to be sent is removed, and a backup is made first. Run it now and then if syncs feel slow or the database size above is large."), PRUNE_AFTER_DAYS),
                     ok_text = _("Prune"),
                     ok_callback = function()
                         local cutoff = os.time() - PRUNE_AFTER_DAYS * 24 * 60 * 60
@@ -338,7 +338,7 @@ function GrimmoryMenu:getDatabaseMenu()
             keep_menu_open = true,
             callback = function(touchmenu_instance)
                 UIManager:show(ConfirmBox:new({
-                    text = _("Remove all of Grimmory's local data?\n\nReading sessions and progress not yet sent to Grimmory will be lost. Your books and KOReader's own data are not affected."),
+                    text = _("Clear all of Grimmory's local data?\n\nWhat it's for: starting over when the plugin's database is broken or confused, for example after errors that pruning doesn't fix. Books are recorded again on the next sync.\n\nReading sessions and progress not yet sent to Grimmory will be lost. Your books and KOReader's own data, including its reading statistics, are not affected. A backup is made first."),
                     ok_text = _("Clear"),
                     ok_callback = function()
                         if self.repository:clearAllData() then

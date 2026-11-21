@@ -442,6 +442,16 @@ end
 local MERGE_LIST_LIMIT = 8
 
 function DialogManager:showMergeSplitStatistics()
+    UIManager:show(ConfirmBox:new({
+        text = _("Merge split reading statistics\n\nWhat it's for: KOReader's reading statistics treat a book as new when its file is replaced or its title or authors change, so its history ends up split over several records. Grimmory now keeps them together itself when it downloads a book again, so this tidies up splits from before that, usually once.\n\nSplits can still happen from things Grimmory doesn't see: replacing a book's file yourself (over USB, or deleting and adding it again), or another app replacing it. Run this again after any of those.\n\nNothing changes until you confirm the list on the next screen."),
+        ok_text = _("Look for splits"),
+        ok_callback = function()
+            self:findAndMergeSplitStatistics()
+        end,
+    }))
+end
+
+function DialogManager:findAndMergeSplitStatistics()
     local close_checking = self:toast(_("Looking for split reading statistics…"), 0)
     UIManager:forceRePaint()
 
