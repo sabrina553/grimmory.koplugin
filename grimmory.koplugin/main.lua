@@ -241,6 +241,10 @@ end
 -- Wifi takes a few seconds to come back after wake, and the progress pull above
 -- runs first; delaying also keeps the retry from racing it.
 local INTERRUPTED_SYNC_RETRY_DELAY = 5
+-- If another sync is running when the retry is due, wait for it this long
+-- between checks, up to this many times, rather than dropping the retry.
+local INTERRUPTED_SYNC_BUSY_DELAY = 30
+local INTERRUPTED_SYNC_BUSY_ATTEMPTS = 10
 
 function Grimmory:scheduleInterruptedSyncRetry()
     local pending = self.interrupted_sync
@@ -251,10 +255,27 @@ function Grimmory:scheduleInterruptedSyncRetry()
     -- Clear up front so each interruption gets one retry at most
     self.interrupted_sync = nil
 
-    UIManager:scheduleIn(INTERRUPTED_SYNC_RETRY_DELAY, function()
+    local attempts = 0
+
+    local function try_retry()
         if self.is_suspended then
             -- Slept again before the retry fired; keep it for the next wake
             self.interrupted_sync = pending
+            return
+        end
+
+        if self.is_synchronizing then
+            -- Another sync (e.g. sync on suspend after waking) is running.
+            -- It may not cover what was interrupted (a check of every
+            -- book), so wait for it rather than drop the retry.
+            attempts = attempts + 1
+            if attempts > INTERRUPTED_SYNC_BUSY_ATTEMPTS then
+                logger:info("Giving up retry of interrupted sync, another sync kept running")
+                return
+            end
+
+            logger:info("Another sync is running, retrying the interrupted one after it")
+            UIManager:scheduleIn(INTERRUPTED_SYNC_BUSY_DELAY, try_retry)
             return
         end
 
@@ -265,8 +286,18 @@ function Grimmory:scheduleInterruptedSyncRetry()
 
         logger:info("Retrying sync interrupted by sleep")
         self.next_sync_is_retry = true
-        self:onGrimmorySync(pending.verbose, pending.book_path, pending.refresh_book)
-    end)
+
+        -- Run quietly, but show the result if the user asked to see it
+        if pending.report then
+            self.report_current_sync = true
+        end
+
+        -- The 4th argument (check every book) only exists where that sync
+        -- mode does; elsewhere it is ignored.
+        self:onGrimmorySync(false, pending.book_path, pending.refresh_book, pending.check_every_book)
+    end
+
+    UIManager:scheduleIn(INTERRUPTED_SYNC_RETRY_DELAY, try_retry)
 end
 
 function Grimmory:onPowerOff()
@@ -539,15 +570,24 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
         local function markInterrupted(reason)
             logger:warn("Sync interrupted by sleep, will retry on wake", reason)
 
+            -- report_current_sync / sync_check_every_book are set by other
+            -- features where present (asked-for results, check every book).
+            local report = verbose or self.report_current_sync == true
+
             self.interrupted_sync = {
-                verbose = verbose,
+                report = report,
                 book_path = book_path,
                 refresh_book = refresh_book,
+                check_every_book = self.sync_check_every_book,
             }
+            -- Carried by the retry now, so it doesn't leak to another sync
+            self.report_current_sync = false
 
-            if verbose then
+            if report then
+                -- Stays until tapped, like other results the user asked for
                 self.dialog_manager:toast(
-                    _("Sync interrupted by sleep, will continue on wake")
+                    _("Sync interrupted by sleep, will continue on wake"),
+                    0
                 )
             end
 
