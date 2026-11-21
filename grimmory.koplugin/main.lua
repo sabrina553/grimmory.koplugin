@@ -22,6 +22,7 @@ local GrimmorySettings = require("grimmory/settings")
 local GrimmoryAPI = require("grimmory/grimmory_api")
 local GrimmorySynchronize = require("grimmory/synchronize")
 local GrimmoryScheduler = require("grimmory/scheduler")
+local GrimmorySleepHold = require("grimmory/sleep_hold")
 local GrimmorySelfUpdater = require("grimmory/ota/self_updater")
 local GithubAPI = require("grimmory/ota/github_api")
 local GrimmoryLogger = require("grimmory/logger")
@@ -198,6 +199,9 @@ end
 function Grimmory:onSuspend()
     logger:dbg("Device is suspending")
 
+    -- A lock should still go through, so cap how long a sync may hold it off.
+    GrimmorySleepHold:onSuspend()
+
     self.reading_recorder:onSessionEnd()
 
     if self.settings:getSyncOnSuspend() then
@@ -208,6 +212,8 @@ end
 function Grimmory:onResume()
     logger:dbg("Device is resuming")
 
+    GrimmorySleepHold:onResume()
+
     if self.settings:getSyncReadingProgress() then
         self:pullProgressForOpenBook()
     end
@@ -217,6 +223,9 @@ end
 
 function Grimmory:onPowerOff()
     logger:dbg("Device is powering off")
+
+    -- Cap the hold as on suspend, so a sync can't delay power-off for long.
+    GrimmorySleepHold:onSuspend()
 
     self.reading_recorder:onSessionEnd()
 
