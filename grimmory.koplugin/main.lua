@@ -489,9 +489,9 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
             return
         end
 
-        self.report_current_sync = false
-
         -- Results stay on screen until tapped, so they aren't missed.
+        -- report_current_sync is kept until the sync ends (it may be set
+        -- before the sync starts, e.g. by a retry), then cleared.
         local function report(text)
             if verbose or self.report_current_sync then
                 self:closeMainMenu()
@@ -646,6 +646,7 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
                 report(_("Failed to Synchronize with Grimmory"))
             end
 
+            self.report_current_sync = false
             return
         end
 
