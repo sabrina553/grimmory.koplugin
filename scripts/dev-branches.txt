@@ -21,3 +21,4 @@ fix/advance-past-skipped-sessions
 perf/shared-db-connection
 fix/reload-only-when-changed
 fix/shared-wifi-between-jobs
+feat/sync-in-progress-feedback
