@@ -186,19 +186,48 @@ local function normalise(text)
     return (tostring(text or "")):lower():gsub("[^%w]", "")
 end
 
+-- With no record's file left, the book may still be on the device as a
+-- newer download whose md5 KOReader hasn't recorded yet (it was never opened).
+-- Find it by name first, then confirm with the file's own title and authors,
+-- so the merged record carries on when the book is next opened.
+---@return string|nil md5
+local function findReplacementFile(files, group, read_props)
+    local title_key = normalise(group.title)
+    local authors_key = normalise(group.authors)
+    local found = nil
+
+    for _, file in ipairs(files) do
+        if file.name:find(title_key, 1, true) then
+            local read_ok, props = pcall(read_props, file.path)
+            if read_ok and props and normalise(props.title) == title_key and normalise(props.authors) == authors_key then
+                -- Two matching files: can't tell which one is read, so leave it.
+                if found then
+                    return nil
+                end
+                found = file.md5
+            end
+        end
+    end
+
+    return found
+end
+
 ---@class GrimmorySplitBook
 ---@field title string
 ---@field keep_id number
 ---@field merge_ids number[]
+---@field repoint_md5 string|nil md5 of the file now on the device, when the record has none
 
 -- Finds books whose reading history is split over several records because
 -- the file was replaced. A group is only merged when exactly one record's
 -- file is still on the device (or none is), so two copies kept on purpose,
 -- and the book that is open, keep their own records.
----@param present_md5 table<string, boolean> md5s of book files on the device
+---@param present GrimmoryPresentBooks
+---@param read_props function(path): table|nil Reads a book file's own title and authors
 ---@return boolean ok
 ---@return GrimmorySplitBook[] | string groups_or_error
-function KOReaderStatistics.findSplitBooks(present_md5, database_path)
+function KOReaderStatistics.findSplitBooks(present_books, read_props, database_path)
+    local present_files = present_books.files
     database_path = database_path or KOReaderStatistics.getDatabasePath()
 
     if not util.fileExists(database_path) then
@@ -224,12 +253,12 @@ function KOReaderStatistics.findSplitBooks(present_md5, database_path)
         for i = 1, #rows[1] do
             local key = normalise(rows[2][i]) .. "|" .. normalise(rows[3][i])
             if not groups[key] then
-                groups[key] = { title = rows[2][i], records = {} }
+                groups[key] = { title = rows[2][i], authors = rows[3][i], records = {} }
                 table.insert(order, key)
             end
             table.insert(groups[key].records, {
                 id = tonumber(rows[1][i]),
-                present = present_md5[rows[4][i]] == true,
+                present = present_books.md5[rows[4][i]] == true,
             })
         end
     end
@@ -255,7 +284,11 @@ function KOReaderStatistics.findSplitBooks(present_md5, database_path)
                         table.insert(merge_ids, record.id)
                     end
                 end
-                table.insert(split_books, { title = group.title, keep_id = keep.id, merge_ids = merge_ids })
+                local split_book = { title = group.title, keep_id = keep.id, merge_ids = merge_ids }
+                if #present == 0 then
+                    split_book.repoint_md5 = findReplacementFile(present_files, group, read_props)
+                end
+                table.insert(split_books, split_book)
             end
         end
     end
@@ -276,29 +309,46 @@ function KOReaderStatistics.mergeSplitBooks(split_books, database_path)
                 mergeBookInto(conn, merge_id, book.keep_id)
                 merged = merged + 1
             end
+            if book.repoint_md5 then
+                local stmt = conn:prepare("UPDATE OR IGNORE book SET md5 = ? WHERE id = ?;")
+                stmt:reset():bind(book.repoint_md5, book.keep_id):step()
+                stmt:close()
+            end
         end
         return merged
     end)
 end
 
 
--- md5s of the book files on the device: everything under the download
--- directory, plus books opened from elsewhere (from KOReader's history).
+-- The book files on the device: everything under the download directory,
+-- plus books opened from elsewhere (from KOReader's history).
+---@class GrimmoryPresentBooks
+---@field md5 table<string, boolean>
+---@field files { path: string, md5: string, name: string }[] Download directory files
 ---@param download_directory string|nil
----@return table<string, boolean>
+---@return GrimmoryPresentBooks
 function KOReaderStatistics.findPresentBooks(download_directory)
     local DocSettings = require("docsettings")
     local DocumentRegistry = require("document/documentregistry")
     local ReadHistory = require("readhistory")
 
-    local present = {}
+    local present = { md5 = {}, files = {} }
+
+    -- KOReader's statistics look a book up by the md5 saved with its
+    -- settings, so prefer that over hashing the file.
+    local function bookMd5(path)
+        local saved = DocSettings:hasSidecarFile(path)
+            and DocSettings:open(path):readSetting("partial_md5_checksum")
+        return saved or util.partialMD5(path)
+    end
 
     if download_directory and download_directory ~= "" then
-        util.findFiles(download_directory, function(path)
+        util.findFiles(download_directory, function(path, name)
             if DocumentRegistry:hasProvider(path) then
-                local md5 = util.partialMD5(path)
+                local md5 = bookMd5(path)
                 if md5 then
-                    present[md5] = true
+                    present.md5[md5] = true
+                    table.insert(present.files, { path = path, md5 = md5, name = normalise(name) })
                 end
             end
         end)
@@ -306,11 +356,9 @@ function KOReaderStatistics.findPresentBooks(download_directory)
 
     for _, entry in ipairs(ReadHistory.hist or {}) do
         if entry.file and util.fileExists(entry.file) then
-            local md5 = DocSettings:hasSidecarFile(entry.file)
-                and DocSettings:open(entry.file):readSetting("partial_md5_checksum")
-                or util.partialMD5(entry.file)
+            local md5 = bookMd5(entry.file)
             if md5 then
-                present[md5] = true
+                present.md5[md5] = true
             end
         end
     end

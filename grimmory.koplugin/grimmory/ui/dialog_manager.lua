@@ -11,6 +11,7 @@ local PathChooser = require("ui/widget/pathchooser")
 local ProgressbarDialog = require("ui/widget/progressbardialog")
 
 local GrimmoryLogger = require("grimmory/logger")
+local DocMetadata = require("grimmory/doc_metadata")
 local KOReaderStatistics = require("grimmory/koreader_statistics")
 
 local logger = GrimmoryLogger:new()
@@ -446,7 +447,9 @@ function DialogManager:showMergeSplitStatistics()
     UIManager:forceRePaint()
 
     local present = KOReaderStatistics.findPresentBooks(self.settings:getDownloadDirectory())
-    local find_ok, split_books = KOReaderStatistics.findSplitBooks(present)
+    local find_ok, split_books = KOReaderStatistics.findSplitBooks(present, function(path)
+        return DocMetadata:readFileProps(path)
+    end)
     close_checking()
 
     if not find_ok then
@@ -466,7 +469,11 @@ function DialogManager:showMergeSplitStatistics()
             table.insert(lines, T(_("…and %1 more"), #split_books - MERGE_LIST_LIMIT))
             break
         end
-        table.insert(lines, T(_("• %1 (%2 records)"), book.title, #book.merge_ids + 1))
+        if book.repoint_md5 then
+            table.insert(lines, T(_("• %1 (%2 records, linked to the current file)"), book.title, #book.merge_ids + 1))
+        else
+            table.insert(lines, T(_("• %1 (%2 records)"), book.title, #book.merge_ids + 1))
+        end
     end
 
     UIManager:show(ConfirmBox:new({
