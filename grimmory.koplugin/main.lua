@@ -436,9 +436,31 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
     -- Tell everything to flush so we have data available for our sync
     UIManager:broadcastEvent(Event:new("FlushSettings"))
 
+    -- Asked for by the user while another sync (such as one started on
+    -- boot or on suspend) is running: say so, and report that sync's
+    -- result when it finishes instead of starting a second one.
+    if verbose and self.is_synchronizing then
+        logger:info("Sync requested while one is running, reporting that one")
+        self.report_current_sync = true
+        self.dialog_manager:toast(
+            _("A sync is already in progress. You'll see the result when it finishes."),
+            4
+        )
+        return
+    end
+
     local function background_callback(run, terminate)
         if not self:isReadyToSync() then
             return
+        end
+
+        self.report_current_sync = false
+
+        -- Results stay on screen until tapped, so they aren't missed.
+        local function report(text)
+            if verbose or self.report_current_sync then
+                self.dialog_manager:toast(text, 0)
+            end
         end
 
         -- Run in the foreground, as something with background tasks and
@@ -581,19 +603,11 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
             if terminated_early then
                 logger:info("Sync was interrupted by user")
 
-                if verbose then
-                    self.dialog_manager:toast(
-                        _("Grimmory synchronization has been interrupted")
-                    )
-                end
+                report(_("Grimmory synchronization has been interrupted"))
             else
                 logger:err("Failed sync", result)
 
-                if verbose then
-                    self.dialog_manager:toast(
-                        _("Failed to Synchronize with Grimmory")
-                    )
-                end
+                report(_("Failed to Synchronize with Grimmory"))
             end
 
             return
@@ -620,7 +634,7 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
 
         self:refreshUI()
 
-        if verbose then
+        if verbose or self.report_current_sync then
             local message = {
                 _("Completed Grimmory sync")
             }
@@ -645,8 +659,10 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
                 table.insert(message, T(_("%1 book(s) failed"), book_error_count))
             end
 
-            self.dialog_manager:toast(table.concat(message, "\n"))
+            report(table.concat(message, "\n"))
         end
+
+        self.report_current_sync = false
     end
 
     self.executor:background(

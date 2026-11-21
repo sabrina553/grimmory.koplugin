@@ -319,6 +319,15 @@ function GrimmoryMenu:getTopMenu()
         table.insert(
             menu, 1,
             {
+                text = _("Sync in progress…"),
+                enabled_func = function()
+                    return false
+                end,
+            }
+        )
+        table.insert(
+            menu, 2,
+            {
                 text = _("Interrupt Current Sync"),
                 callback = function()
                     if self.interrupt_sync ~= nil then
