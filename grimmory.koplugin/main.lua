@@ -54,6 +54,10 @@ local Grimmory = WidgetContainer:extend{
     release_check_cancel = nil,
     menu = nil,
     is_synchronizing = false,
+    -- Sleep tracking so a sync killed by wifi dropping on suspend can be retried
+    is_suspended = false,
+    suspend_count = 0,
+    interrupted_sync = nil,
 }
 
 function Grimmory:onDispatcherRegisterActions()
@@ -206,6 +210,13 @@ end
 function Grimmory:onSuspend()
     logger:dbg("Device is suspending")
 
+    self.is_suspended = true
+    self.suspend_count = self.suspend_count + 1
+
+    if self.is_synchronizing then
+        logger:info("Suspending while a sync is running, it may be interrupted")
+    end
+
     self.reading_recorder:onSessionEnd()
 
     if self.settings:getSyncOnSuspend() then
@@ -216,11 +227,46 @@ end
 function Grimmory:onResume()
     logger:dbg("Device is resuming")
 
+    self.is_suspended = false
+
     if self.settings:getSyncReadingProgress() then
         self:pullProgressForOpenBook()
     end
 
     self.reading_recorder:onSessionStart()
+
+    self:scheduleInterruptedSyncRetry()
+end
+
+-- Wifi takes a few seconds to come back after wake, and the progress pull above
+-- runs first; delaying also keeps the retry from racing it.
+local INTERRUPTED_SYNC_RETRY_DELAY = 5
+
+function Grimmory:scheduleInterruptedSyncRetry()
+    local pending = self.interrupted_sync
+    if pending == nil then
+        return
+    end
+
+    -- Clear up front so each interruption gets one retry at most
+    self.interrupted_sync = nil
+
+    UIManager:scheduleIn(INTERRUPTED_SYNC_RETRY_DELAY, function()
+        if self.is_suspended then
+            -- Slept again before the retry fired; keep it for the next wake
+            self.interrupted_sync = pending
+            return
+        end
+
+        if not self:isReadyToSync() then
+            logger:info("Skipping retry of interrupted sync, not ready to sync")
+            return
+        end
+
+        logger:info("Retrying sync interrupted by sleep")
+        self.next_sync_is_retry = true
+        self:onGrimmorySync(pending.verbose, pending.book_path, pending.refresh_book)
+    end)
 end
 
 function Grimmory:onPowerOff()
@@ -441,6 +487,11 @@ function Grimmory:refreshUI()
 end
 
 function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
+    -- Set by scheduleInterruptedSyncRetry; a flag rather than a parameter
+    -- so other branches can add their own parameters.
+    local is_retry = self.next_sync_is_retry == true
+    self.next_sync_is_retry = false
+
     -- Tell everything to flush so we have data available for our sync
     UIManager:broadcastEvent(Event:new("FlushSettings"))
 
@@ -467,6 +518,44 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
             logger:dbg("Terminate requested")
             terminated_early = true
             terminate()
+        end
+
+        -- Compared after the run to tell whether the device slept mid-sync
+        local suspend_count_at_start = self.suspend_count
+        -- A sync started by locking (sync on suspend) can fail only after
+        -- wake, when the network times out, so remember it began asleep.
+        local started_while_suspended = self.is_suspended
+
+        local function interruptedBySleep()
+            return not is_retry and (
+                self.is_suspended
+                or started_while_suspended
+                or self.suspend_count ~= suspend_count_at_start
+            )
+        end
+
+        -- Sleep drops wifi, so a failure around it is most likely the
+        -- network going away rather than a real error: retry on wake.
+        local function markInterrupted(reason)
+            logger:warn("Sync interrupted by sleep, will retry on wake", reason)
+
+            self.interrupted_sync = {
+                verbose = verbose,
+                book_path = book_path,
+                refresh_book = refresh_book,
+            }
+
+            if verbose then
+                self.dialog_manager:toast(
+                    _("Sync interrupted by sleep, will continue on wake")
+                )
+            end
+
+            -- Already awake by the time the failure surfaced, so
+            -- onResume has been and gone; schedule the retry here
+            if not self.is_suspended then
+                self:scheduleInterruptedSyncRetry()
+            end
         end
 
         self.is_synchronizing = true
@@ -594,6 +683,8 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
                         _("Grimmory synchronization has been interrupted")
                     )
                 end
+            elseif interruptedBySleep() then
+                markInterrupted(result)
             else
                 logger:err("Failed sync", result)
 
@@ -635,6 +726,13 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
                 "Failed steps:",
                 table.concat(sync_report.failed_steps, ", ")
             )
+
+            -- Steps run independently, so sleep usually shows up here as
+            -- failed steps rather than as the whole run failing.
+            if interruptedBySleep() then
+                markInterrupted(table.concat(sync_report.failed_steps, ", "))
+                return
+            end
         end
 
         if verbose then
