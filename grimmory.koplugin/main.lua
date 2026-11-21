@@ -7,6 +7,8 @@ local _ = require("gettext")
 local T = require("ffi/util").template
 
 local Dispatcher = require("dispatcher")
+local DocSettings = require("docsettings")
+local dump = require("dump")
 local FileManager = require("apps/filemanager/filemanager")
 local NetworkManager = require("ui/network/manager")
 local UIManager = require("ui/uimanager")
@@ -410,7 +412,31 @@ function Grimmory:onGrimmorySyncOpenBook(verbose)
     return self:onGrimmorySync(verbose, book_path)
 end
 
-function Grimmory:refreshUI()
+-- What a sync can change in the open book's sidecar: position and
+-- annotations. Read from disk, as the sync writes from a subprocess.
+function Grimmory:openBookFingerprint()
+    if self.ui == nil or self.ui.document == nil or self.ui.document.file == nil then
+        return nil
+    end
+
+    local file = self.ui.document.file
+    local ok, settings = pcall(DocSettings.open, DocSettings, file)
+    if not ok or settings == nil then
+        return nil
+    end
+
+    return {
+        file = file,
+        state = dump({
+            settings:readSetting("percent_finished"),
+            settings:readSetting("last_xpointer"),
+            settings:readSetting("last_page"),
+            settings:readSetting("annotations"),
+        }),
+    }
+end
+
+function Grimmory:refreshUI(before)
    if self.ui == nil then
         return
     end
@@ -418,6 +444,17 @@ function Grimmory:refreshUI()
     if self.ui.document == nil or self.ui.document.file == nil then
         logger:dbg("No file is open, cannot refresh")
         return
+    end
+
+    -- Reloading closes and reopens the book, so skip it when the sync
+    -- changed nothing for the book that is open.
+    if before ~= nil then
+        local after = self:openBookFingerprint()
+
+        if after ~= nil and after.file == before.file and after.state == before.state then
+            logger:dbg("Open book unchanged by sync, not reloading")
+            return
+        end
     end
 
     local settings = self.doc_metadata:getDocSettings(self.ui.document.file, true)
@@ -435,6 +472,8 @@ end
 function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
     -- Tell everything to flush so we have data available for our sync
     UIManager:broadcastEvent(Event:new("FlushSettings"))
+
+    local open_book_before = self:openBookFingerprint()
 
     local function background_callback(run, terminate)
         if not self:isReadyToSync() then
@@ -618,7 +657,7 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
             end
         end
 
-        self:refreshUI()
+        self:refreshUI(open_book_before)
 
         if verbose then
             local message = {
