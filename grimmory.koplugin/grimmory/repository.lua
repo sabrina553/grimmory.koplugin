@@ -16,9 +16,23 @@ local SESSION_COLLAPSE_THRESHOLD = 180.0
 ---@param flags? "ro" | "rw" | "rwc"
 ---@return boolean ok
 ---@return T result
+-- Connections kept open for the length of a sync, by database path.
+local shared_connections = {}
+
 local function with_database(database_path, callback, flags)
     if flags == nil then
         flags = "ro"
+    end
+
+    local shared = shared_connections[database_path]
+    if shared then
+        local ok, result = pcall(callback, shared)
+        if not ok then
+            -- Closing a connection rolls back an unfinished transaction; a
+            -- shared one stays open, so roll back here instead.
+            pcall(shared.exec, shared, "ROLLBACK")
+        end
+        return ok, result
     end
 
     local open_ok, database = pcall(SQ3.open, database_path, flags)
@@ -1196,5 +1210,40 @@ end
 -- Events further apart than this start a new session, so a session whose
 -- last event is older than this can no longer grow.
 GrimmoryLocalRepository.SESSION_COLLAPSE_THRESHOLD = SESSION_COLLAPSE_THRESHOLD
+
+-- Run fn with one database connection reused by every query, instead of
+-- opening and closing the database per query (each open re-reads the schema).
+-- Writes still commit as they go. Nested calls reuse the outer connection.
+---@param fn function
+---@return any ...
+function GrimmoryLocalRepository:withSharedConnection(fn, ...)
+    local path = self.database_path
+
+    if shared_connections[path] then
+        return fn(...)
+    end
+
+    local open_ok, connection = pcall(SQ3.open, path, "rw")
+    if not open_ok then
+        logger:warn("Could not open a shared database connection, using one per query:", connection)
+        return fn(...)
+    end
+
+    connection:set_busy_timeout(1000)
+    shared_connections[path] = connection
+
+    local function finish(ok, ...)
+        shared_connections[path] = nil
+        connection:close()
+
+        if not ok then
+            error((...), 0)
+        end
+
+        return ...
+    end
+
+    return finish(pcall(fn, ...))
+end
 
 return GrimmoryLocalRepository
