@@ -268,7 +268,15 @@ function GrimmorySynchronize:pushAllPendingBookMetadata(callback)
             break
         end
 
-        pcall(self.pushBookMetadata, self, book_id, callback)
+        local push_ok, push_error = pcall(self.pushBookMetadata, self, book_id, callback)
+        if not push_ok then
+            logger:err("Failed to push book metadata:", book_id, "-", push_error)
+            callback({
+                state = "push-error",
+                book_id = book_id,
+                message = tostring(push_error),
+            })
+        end
 
         callback({
             state = "push-book-metadata",
@@ -911,6 +919,7 @@ function GrimmorySynchronize:pullBooks(callback)
                 callback({
                     state = "book-error",
                     book_id = book.id,
+                    book_title = book.metadata and book.metadata.title,
                     message = pull_path_or_message,
                     viewed_books = element_count,
                     total_books = total_books,
@@ -992,21 +1001,48 @@ function GrimmorySynchronize:synchronizeAll(callback)
         return error("Cannot connect to valid server")
     end
 
+    local succeeded_steps = 0
+
+    -- Each step runs on its own so one failure doesn't hide the work done
+    -- by the others; the caller reports failed steps from the callback.
+    local function runStep(step, step_function)
+        local ok, step_error = pcall(step_function)
+        if ok then
+            succeeded_steps = succeeded_steps + 1
+        else
+            logger:err("Sync step failed:", step, "-", step_error)
+            callback({
+                state = "step-error",
+                step = step,
+                message = tostring(step_error),
+            })
+        end
+        return ok
+    end
+
     -- First, tell Grimmory about all of our reading
     logger:info("Pushing pending book metadata")
-    self:pushAllPendingBookMetadata(callback)
+    runStep("push-metadata", function() self:pushAllPendingBookMetadata(callback) end)
 
     -- Then pull the shelves
     logger:info("Synchronizing shelves")
-    self:synchronizeShelves(callback)
+    runStep("shelves", function() self:synchronizeShelves(callback) end)
 
     -- And only afterwards, pull new books because our
-    -- reading progress may change the books we sync down
+    -- reading progress may change the books we sync down.
+    -- pullBooks only removes books missing upstream after reading the
+    -- whole book list, so an error part-way never deletes anything.
     logger:info("Pulling books")
-    self:pullBooks(callback)
+    local pull_ok = runStep("pull-books", function() self:pullBooks(callback) end)
 
-    -- Clean up empty shelves
-    self:removeEmptyShelves(callback)
+    -- Shelves may look empty if pulling stopped before books were added
+    if pull_ok then
+        runStep("remove-empty-shelves", function() self:removeEmptyShelves(callback) end)
+    end
+
+    if succeeded_steps == 0 then
+        error("Every synchronization step failed")
+    end
 
     logger:info("Done synchronizing")
 end
