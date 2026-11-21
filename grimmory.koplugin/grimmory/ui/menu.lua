@@ -263,8 +263,10 @@ function GrimmoryMenu:getDownloadOptionsMenu()
     }
 end
 
-function GrimmoryMenu:getTopMenu()
-    local menu = {
+-- Settings are grouped one level down so the top menu stays short:
+-- it only holds the sync actions, Settings and About.
+function GrimmoryMenu:getSettingsMenu()
+    return {
         {
             text = _("Connection Settings"),
             callback = function()
@@ -294,6 +296,15 @@ function GrimmoryMenu:getTopMenu()
             text = _("Download Configuration"),
             sub_item_table = self:getDownloadOptionsMenu(),
             separator = true,
+        },
+    }
+end
+
+function GrimmoryMenu:getTopMenu()
+    local menu = {
+        {
+            text = _("Settings"),
+            sub_item_table = self:getSettingsMenu(),
         },
         {
             text = _("About Grimmory Sync"),
