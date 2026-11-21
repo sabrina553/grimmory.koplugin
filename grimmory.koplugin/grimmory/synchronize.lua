@@ -580,6 +580,50 @@ function GrimmorySynchronize:moveKOReaderBookHash(book_path, old_md5, new_md5)
     end
 end
 
+-- A refreshed file can carry a new title or authors (edited on the server).
+-- KOReader's statistics key books by title and authors, so rename the record
+-- now, or opening the book would start a second one and split its history.
+---@param book_path string
+function GrimmorySynchronize:followMetadataChange(book_path)
+    local settings = self.doc_metadata:getDocSettings(book_path)
+
+    -- Metadata edited in KOReader overrides the file's, so nothing changes.
+    if settings:getCustomMetadataFile() then
+        return
+    end
+
+    local old_props = settings:readSetting("doc_props")
+    local book_md5 = settings:readSetting("partial_md5_checksum")
+    if type(old_props) ~= "table" or not old_props.title or not book_md5 then
+        return
+    end
+
+    local new_props = self.doc_metadata:readFileProps(book_path)
+    if type(new_props) ~= "table" or not new_props.title or new_props.title == "" then
+        return
+    end
+
+    local old_authors = old_props.authors or "N/A"
+    local new_authors = new_props.authors or "N/A"
+    if old_props.title == new_props.title and old_authors == new_authors then
+        return
+    end
+
+    local ok, result = KOReaderStatistics.renameBook(
+        book_md5, old_props.title, old_authors, new_props.title, new_authors
+    )
+    if not ok then
+        logger:err("Could not rename KOReader statistics record:", book_path, result)
+        return
+    end
+
+    logger:info("Statistics record follows new metadata:", book_path, result, "book(s)")
+    old_props.title = new_props.title
+    old_props.authors = new_props.authors
+    settings:saveSetting("doc_props", old_props)
+    settings:flush()
+end
+
 function GrimmorySynchronize:downloadBook(book_id, download_path)
     local success, result, message = pcall(function()
         return self.api:downloadBook(book_id, download_path)
@@ -795,6 +839,13 @@ function GrimmorySynchronize:refreshBook(book_path, book_id, grimmory_id)
         local move_ok, move_message = pcall(self.moveKOReaderBookHash, self, book_path, book_partial_md5, temp_partial_md5)
         if not move_ok then
             logger:err("Could not update KOReader records for refreshed book:", book_path, move_message)
+        end
+    end
+
+    if finalize_ok then
+        local follow_ok, follow_message = pcall(self.followMetadataChange, self, book_path)
+        if not follow_ok then
+            logger:err("Could not update KOReader statistics for new metadata:", book_path, follow_message)
         end
     end
 
