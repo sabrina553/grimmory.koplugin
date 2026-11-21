@@ -1193,4 +1193,8 @@ function GrimmoryLocalRepository:hasPositionMovedSince(book_id, since)
     return true, moved
 end
 
+-- Events further apart than this start a new session, so a session whose
+-- last event is older than this can no longer grow.
+GrimmoryLocalRepository.SESSION_COLLAPSE_THRESHOLD = SESSION_COLLAPSE_THRESHOLD
+
 return GrimmoryLocalRepository
