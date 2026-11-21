@@ -487,6 +487,8 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book, check_every_b
             terminate()
         end
 
+        -- Which kind of sync is running, so it can be repeated if needed
+        self.sync_check_every_book = check_every_book == true
         self.is_synchronizing = true
         self.menu:onGrimmorySyncStart(queue_terminate)
 
