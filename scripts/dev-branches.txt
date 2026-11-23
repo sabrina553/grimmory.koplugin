@@ -36,3 +36,4 @@ perf/hash-once-per-sync
 feat/light-sync-on-lock
 fix/refresh-on-metadata-change
 fix/share-sync-state
+feat/sync-read-status
