@@ -95,6 +95,10 @@ end
 ---@field shelves number[]
 ---@field metadata BookMetadata
 ---@field primary_file BookFile | nil
+---@field last_read_time number | nil
+---@field koreader_percentage number | nil
+---@field file_size_kb number | nil
+---@field cover_updated_on number | nil
 
 ---@class GrimmoryAnnotation
 ---@field id number | nil
@@ -140,6 +144,10 @@ local function parse_book(book)
     return {
         id = from_json_number(book.id),
         added_on = from_json_iso8601(book["addedOn"]),
+        last_read_time = from_json_iso8601(book["lastReadTime"]),
+        koreader_percentage = from_json_number((book["koreaderProgress"] or {})["percentage"]),
+        file_size_kb = from_json_number((book["primaryFile"] or {})["fileSizeKb"]),
+        cover_updated_on = from_json_iso8601(book_metadata["coverUpdatedOn"]),
         shelves = shelves,
         metadata = metadata,
         primary_file = primary_file
