@@ -6,6 +6,7 @@ local NetworkManager = require("ui/network/manager")
 local UIManager = require("ui/uimanager")
 
 local GrimmoryLogger = require("grimmory/logger")
+local GrimmorySleepHold = require("grimmory/sleep_hold")
 
 local logger = GrimmoryLogger:new()
 
@@ -280,6 +281,7 @@ function GrimmoryExecutor:background(callback, with_wifi)
 
         local function run_in_background(runnable, on_progress)
             UIManager:preventStandby()
+            GrimmorySleepHold:start()
 
             -- We want the executor to attempt to connect to wifi before it runs
             -- anything, and if it turns this on we should disable it afterwards, too.
@@ -294,6 +296,7 @@ function GrimmoryExecutor:background(callback, with_wifi)
 
             local function finish()
                 UIManager:allowStandby()
+                GrimmorySleepHold:stop()
 
                 if with_wifi then
                     release_wifi()
