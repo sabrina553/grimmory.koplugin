@@ -70,6 +70,20 @@ function Grimmory:onDispatcherRegisterActions()
     general = true,
   })
 
+  Dispatcher:registerAction("grimmory_sync_check_all_foreground", {
+    category = "none",
+    event = "GrimmorySyncCheckAllForeground",
+    title = _("Grimmory: Sync Library (Check All Books)"),
+    general = true,
+  })
+
+  Dispatcher:registerAction("grimmory_sync_check_all_background", {
+    category = "none",
+    event = "GrimmorySyncCheckAllBackground",
+    title = _("Grimmory: Sync Library (Check All Books) in Background"),
+    general = true,
+  })
+
   Dispatcher:registerAction("grimmory_sync_open_book_foreground", {
     category = "none",
     event = "GrimmorySyncOpenBookForeground",
@@ -381,6 +395,18 @@ function Grimmory:onGrimmorySyncForegound()
     return self:onGrimmorySync(true)
 end
 
+function Grimmory:onGrimmorySyncCheckAllForeground()
+    return self:onGrimmorySync(true, nil, nil, true)
+end
+
+function Grimmory:onGrimmorySyncCheckAllBackground()
+    -- Say so if a sync is already running, where that feature is present.
+    if self.onGrimmoryWatchSync and self:onGrimmoryWatchSync() then
+        return true
+    end
+    return self:onGrimmorySync(false, nil, nil, true)
+end
+
 function Grimmory:onGrimmorySyncBackground()
     return self:onGrimmorySync(false)
 end
@@ -426,7 +452,7 @@ function Grimmory:refreshUI()
     self.ui:reloadDocument()
 end
 
-function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
+function Grimmory:onGrimmorySync(verbose, book_path, refresh_book, check_every_book)
     -- Tell everything to flush so we have data available for our sync
     UIManager:broadcastEvent(Event:new("FlushSettings"))
 
@@ -445,6 +471,8 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
             terminate()
         end
 
+        -- Which kind of sync is running, so it can be repeated if needed
+        self.sync_check_every_book = check_every_book == true
         self.is_synchronizing = true
         self.menu:onGrimmorySyncStart(queue_terminate)
 
@@ -486,7 +514,7 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
                 if book_path then
                     self.synchronizer:synchronizeBook(book_path, refresh_book, progress_callback)
                 else
-                    self.synchronizer:synchronizeAll(progress_callback)
+                    self.synchronizer:synchronizeAll(progress_callback, check_every_book)
                 end
             end,
             function(progress)
