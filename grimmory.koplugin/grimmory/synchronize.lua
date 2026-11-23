@@ -1,6 +1,7 @@
 local ReadCollection = require("readcollection")
 local md5 = require("ffi/MD5")
 local util = require("util")
+local BookHash = require("grimmory/book_hash")
 
 local GrimmoryLogger = require("grimmory/logger")
 
@@ -491,7 +492,7 @@ function GrimmorySynchronize:getBookDownloadPath(book)
         for _, local_book in ipairs(existing_books) do
             if (
                 util.fileExists(local_book.book_path) and
-                util.partialMD5(local_book.book_path) == local_book.book_md5
+                BookHash.partialMD5(local_book.book_path) == local_book.book_md5
             ) then
                 return local_book.book_path
             end
@@ -631,8 +632,8 @@ function GrimmorySynchronize:refreshBook(book_path, book_id, grimmory_id)
         return true, book_id
     end
 
-    local temp_partial_md5 = util.partialMD5(temp_path)
-    local book_partial_md5 = util.partialMD5(book_path)
+    local temp_partial_md5 = BookHash.partialMD5(temp_path)
+    local book_partial_md5 = BookHash.partialMD5(book_path)
 
 
     local backup_path = book_path .. ".bak"
@@ -833,7 +834,7 @@ function GrimmorySynchronize:pullBooks(callback)
                     return
                 end
 
-                local partial_md5 = util.partialMD5(path)
+                local partial_md5 = BookHash.partialMD5(path)
                 local found_ok, _, grimmory_id = self.repository:findBookByFile(path, partial_md5)
 
                 if not found_ok or not grimmory_id then
@@ -902,6 +903,9 @@ function GrimmorySynchronize:synchronizeAll(callback)
 
     -- Clean up empty shelves
     self:removeEmptyShelves(callback)
+
+    local hash_hits, hash_misses = BookHash.stats()
+    logger:dbg("Book hashes reused", hash_hits, "computed", hash_misses)
 
     logger:info("Done synchronizing")
 end

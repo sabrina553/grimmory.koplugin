@@ -1,7 +1,7 @@
 local Cache = require("cache")
 local DocSettings = require("docsettings")
 local DocumentRegistry = require("document/documentregistry")
-local util = require("util")
+local BookHash = require("grimmory/book_hash")
 
 local GrimmoryLogger = require("grimmory/logger")
 local logger = GrimmoryLogger:new()
@@ -58,7 +58,7 @@ function DocMetadata:getDocSettings(path, fresh)
 end
 
 function DocMetadata:getDocProps(path)
-    local book_md5 = util.partialMD5(path)
+    local book_md5 = BookHash.partialMD5(path)
 
     local cache_value = self.props_cache:get(book_md5)
     if cache_value ~= nil then

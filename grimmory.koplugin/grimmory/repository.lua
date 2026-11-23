@@ -2,6 +2,7 @@ local SQ3 = require("lua-ljsqlite3/init")
 local DataStorage = require("datastorage")
 local ffiUtil = require("ffi/util")
 local util = require("util")
+local BookHash = require("grimmory/book_hash")
 
 local GrimmoryLogger = require("grimmory/logger")
 local PluginMetadata = require("grimmory/plugin_metadata")
@@ -152,7 +153,7 @@ function GrimmoryLocalRepository:upsertBook(book_path, grimmory_id)
     -- Resolve path for file.
     local absolute_book_path = ffiUtil.realpath(book_path)
 
-    local partial_md5 = util.partialMD5(absolute_book_path)
+    local partial_md5 = BookHash.partialMD5(absolute_book_path)
 
     local ok, book = with_database(
         self.database_path,
