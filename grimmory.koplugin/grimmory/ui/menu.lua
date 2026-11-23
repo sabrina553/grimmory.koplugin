@@ -291,6 +291,17 @@ function GrimmoryMenu:getDownloadOptionsMenu()
                 UIManager:broadcastEvent(Event:new("GrimmorySettingsChanged"))
             end,
         },
+        {
+            text = _("Merge Split Reading Statistics"),
+            help_text = _("Books downloaded again before Grimmory kept their statistics together can have their reading history split over several records. Merge records with the same title and authors whose old file is gone. Asks first; a backup is made."),
+            enabled_func = function()
+                return self.interrupt_sync == nil
+            end,
+            keep_menu_open = true,
+            callback = function()
+                self.dialog_manager:showMergeSplitStatistics()
+            end,
+        },
     }
 end
 
