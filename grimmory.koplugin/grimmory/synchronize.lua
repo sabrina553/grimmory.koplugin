@@ -688,6 +688,96 @@ function GrimmorySynchronize:refreshBook(book_path, book_id, grimmory_id)
     return true, book_id
 end
 
+-- Both sides' statuses reduced to the states they share. Grimmory's other
+-- states (unread, partly read, unset) stay "none" so they never clear a
+-- status set on the reader.
+local READ_STATE = { none = 0, reading = 1, on_hold = 2, finished = 3 }
+
+local SERVER_READ_STATE = {
+    READING = READ_STATE.reading,
+    RE_READING = READ_STATE.reading,
+    PAUSED = READ_STATE.on_hold,
+    ABANDONED = READ_STATE.on_hold,
+    WONT_READ = READ_STATE.on_hold,
+    READ = READ_STATE.finished,
+}
+
+local KOREADER_READ_STATE = {
+    reading = READ_STATE.reading,
+    abandoned = READ_STATE.on_hold,
+    complete = READ_STATE.finished,
+}
+
+local KOREADER_STATUS = { "reading", "abandoned", "complete" }
+local SERVER_STATUS = { "READING", "PAUSED", "READ" }
+
+-- Stored as state + 1 so a missing marker (0) means "never compared".
+local READ_STATUS_MARKER = "read-status"
+
+---@param path string
+---@return boolean
+function GrimmorySynchronize:isOpenBook(path)
+    local ui = self.doc_metadata.ui
+    return ui ~= nil and ui.document ~= nil and ui.document.file == path
+end
+
+-- Keeps KOReader's book status and Grimmory's read status in step. The marker
+-- holds the state both last agreed on, so whichever side moved away from it
+-- is the one that changed. If both changed, the reader wins: it's where the
+-- book was actually read.
+---@param book_path string
+---@param book_id integer local book ID
+---@param book Book from the book list
+function GrimmorySynchronize:syncReadStatus(book_path, book_id, book)
+    -- The open book's status lives in memory and is saved on close, which
+    -- would overwrite anything written here.
+    if self:isOpenBook(book_path) then
+        return
+    end
+
+    local local_status, local_date = self.doc_metadata:getReadStatus(book_path)
+    local reader = KOREADER_READ_STATE[local_status] or READ_STATE.none
+    local server = SERVER_READ_STATE[book.read_status] or READ_STATE.none
+    local server_date = book.date_finished and book.date_finished:sub(1, 10)
+
+    local _, marker = self.repository:getBookSyncTimestamp(book_id, READ_STATUS_MARKER)
+    local agreed = marker and marker > 0 and marker - 1 or nil
+
+    local result = reader
+
+    if reader == server then
+        -- Same state; only a finish date can differ. Grimmory's date is the
+        -- one people can edit, so the reader takes it.
+        if reader == READ_STATE.finished and server_date and server_date ~= local_date then
+            self.doc_metadata:setReadStatus(book_path, local_status, server_date)
+        end
+    elseif server ~= READ_STATE.none and (reader == agreed or (agreed == nil and server > reader)) then
+        -- Changed on Grimmory (or, on the first comparison, further along there).
+        logger:info("Read status from Grimmory:", book_path, book.read_status)
+        self.doc_metadata:setReadStatus(
+            book_path,
+            KOREADER_STATUS[server],
+            server == READ_STATE.finished and server_date or nil
+        )
+        result = server
+    elseif reader ~= READ_STATE.none then
+        logger:info("Read status to Grimmory:", book_path, local_status)
+        if not self.api:setReadStatus(book.id, SERVER_STATUS[reader]) then
+            return
+        end
+        -- The server stamps today; send the day it was really finished.
+        if reader == READ_STATE.finished and local_date then
+            self.api:setDateFinished(book.id, local_date)
+        end
+    else
+        -- Cleared on the reader: leave Grimmory alone, but remember its state
+        -- so a later change there still comes through.
+        result = server
+    end
+
+    self.repository:updateBookSyncTimestamp(book_id, READ_STATUS_MARKER, result + 1)
+end
+
 ---@param book Book
 ---@return string download_path
 ---@return boolean is_downloaded
@@ -723,7 +813,11 @@ function GrimmorySynchronize:pullBook(book)
     end
 
     if book_exists and download_path then
-        self.repository:upsertBook(download_path, book.id)
+        local _, local_book_id = self.repository:upsertBook(download_path, book.id)
+
+        if local_book_id and self.settings:getSyncReadingProgress() then
+            self:syncReadStatus(download_path, local_book_id, book)
+        end
 
         -- After we're done, if the book exists we should attach it
         -- to associated shelves and pull the book progress.

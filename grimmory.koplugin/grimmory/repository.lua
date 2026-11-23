@@ -673,6 +673,7 @@ end
 ---@alias RepositorySyncType
 ---| "progress"
 ---| "sessions"
+---| "read-status"
 
 ---@param book_id number
 ---@param sync_type RepositorySyncType
