@@ -316,7 +316,7 @@ function GrimmoryMenu:getTopMenu()
         table.insert(
             menu, 1,
             {
-                text = _("Sync Everything Now"),
+                text = _("Sync Library"),
                 enabled_func = function()
                     return self.settings:getBaseUri() ~= ""
                 end,
@@ -364,7 +364,7 @@ function GrimmoryMenu:getTopMenu()
         table.insert(
             menu, 1,
             {
-                text = _("Sync Open Book Now"),
+                text = _("Sync This Book"),
                 enabled_func = function()
                     return self.settings:getBaseUri() ~= "" and self.interrupt_sync == nil
                 end,

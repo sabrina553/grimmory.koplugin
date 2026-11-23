@@ -59,14 +59,14 @@ function Grimmory:onDispatcherRegisterActions()
   Dispatcher:registerAction("grimmory_sync_foreground", {
     category = "none",
     event = "GrimmorySyncForegound",
-    title = _("Grimmory: Sync Now"),
+    title = _("Grimmory: Sync Library"),
     general = true,
   })
 
   Dispatcher:registerAction("grimmory_sync_background", {
     category = "none",
     event = "GrimmorySyncBackground",
-    title = _("Grimmory: Sync in Background"),
+    title = _("Grimmory: Sync Library in Background"),
     general = true,
   })
 
@@ -87,14 +87,14 @@ function Grimmory:onDispatcherRegisterActions()
   Dispatcher:registerAction("grimmory_sync_open_book_foreground", {
     category = "none",
     event = "GrimmorySyncOpenBookForeground",
-    title = _("Grimmory: Sync Open Book Now"),
+    title = _("Grimmory: Sync This Book"),
     general = true,
   })
 
   Dispatcher:registerAction("grimmory_sync_open_book_background", {
     category = "none",
     event = "GrimmorySyncOpenBookBackground",
-    title = _("Grimmory: Sync Open Book in Background"),
+    title = _("Grimmory: Sync This Book in Background"),
     general = true,
   })
 end
@@ -176,7 +176,7 @@ function Grimmory:init()
 
             return {
                 {
-                    text = _("Sync with Grimmory"),
+                    text = _("Sync This Book"),
                     callback = function()
                         local file_chooser = FileManager.instance.file_chooser
 
@@ -188,7 +188,7 @@ function Grimmory:init()
                     end,
                 },
                 {
-                    text = _("Reload from Grimmory"),
+                    text = _("Re-download This Book"),
                     callback = function()
                         local file_chooser = FileManager.instance.file_chooser
 
