@@ -133,6 +133,29 @@ local function wrap_coroutine(func)
     return coroutine.resume(co)
 end
 
+-- Jobs can overlap (a sync still running when a wake-up check starts),
+-- so wifi is shared: each job that asked for it holds a use, and wifi is
+-- only turned off when the last use ends, and only if we turned it on.
+local wifi_uses = 0
+local wifi_turned_on_by_us = false
+
+local function release_wifi()
+    wifi_uses = wifi_uses - 1
+
+    if wifi_uses > 0 then
+        logger:dbg("WiFi still in use by another job, leaving it on")
+        return
+    end
+
+    wifi_uses = 0
+
+    if wifi_turned_on_by_us then
+        wifi_turned_on_by_us = false
+        logger:dbg("Disabling WiFi after execution")
+        NetworkManager:turnOffWifi()
+    end
+end
+
 ---@return bool enabled_wifi
 local function enable_wifi(timeout)
     if timeout == nil then
@@ -260,14 +283,25 @@ function GrimmoryExecutor:background(callback, with_wifi)
 
             -- We want the executor to attempt to connect to wifi before it runs
             -- anything, and if it turns this on we should disable it afterwards, too.
-            local wifi_needs_disable = false
             if with_wifi then
                 logger:dbg("Execution requested WiFi")
-                wifi_needs_disable = enable_wifi()
+                wifi_uses = wifi_uses + 1
+
+                if enable_wifi() then
+                    wifi_turned_on_by_us = true
+                end
+            end
+
+            local function finish()
+                UIManager:allowStandby()
+
+                if with_wifi then
+                    release_wifi()
+                end
             end
 
             if was_terminated then
-                UIManager:allowStandby()
+                finish()
                 return false, "Termianted before starting subprocess"
             end
 
@@ -276,10 +310,7 @@ function GrimmoryExecutor:background(callback, with_wifi)
             -- as network management in a subprocess makes Android SIGABRT.
             if not is_connected() then
                 logger:err("No connectivity, not starting subprocess")
-                UIManager:allowStandby()
-                if wifi_needs_disable then
-                    NetworkManager:turnOffWifi()
-                end
+                finish()
                 return false, GrimmoryExecutor.NO_CONNECTIVITY
             end
 
@@ -325,7 +356,7 @@ function GrimmoryExecutor:background(callback, with_wifi)
 
             if was_terminated then
                 ffiutil.terminateSubProcess(subprocess_pid)
-                UIManager:allowStandby()
+                finish()
                 return false, "Terminated before starting subprocess"
             end
 
@@ -387,13 +418,7 @@ function GrimmoryExecutor:background(callback, with_wifi)
                 end
             end
 
-            UIManager:allowStandby()
-
-            -- If wifi was enabled, disable it again
-            if wifi_needs_disable then
-                logger:dbg("Disabling WiFi after execution")
-                NetworkManager:turnOffWifi()
-            end
+            finish()
 
             return subprocess_ok, subprocess_result
         end
