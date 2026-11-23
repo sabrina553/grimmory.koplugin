@@ -54,6 +54,8 @@ local DEFAULTS = {
     session_threshold_pages = 0,
     sync_on_close_document = false,
     sync_on_suspend = false,
+    sync_on_resume = false,
+    library_sync_interval_hours = 24,
     sync_on_power_off = false,
     sync_enable_wifi = false,
     sync_periodically = false,
@@ -330,12 +332,30 @@ function GrimmorySettings:toggleSyncRetainEmptyShelves()
     self:write()
 end
 
-function GrimmorySettings:getSyncPeriodically()
-    if self.data.sync_periodically == nil then
-        return DEFAULTS.sync_periodically
-    end
+function GrimmorySettings:getLibrarySyncIntervalHours()
+    return self.data.library_sync_interval_hours or DEFAULTS.library_sync_interval_hours
+end
 
-    return self.data.sync_periodically
+function GrimmorySettings:setLibrarySyncIntervalHours(hours)
+    self.data.library_sync_interval_hours = hours
+    self:write()
+end
+
+-- Saved, unlike a timer, so time asleep and restarts still count.
+function GrimmorySettings:getLastLibrarySync()
+    return self.data.last_library_sync or 0
+end
+
+function GrimmorySettings:setLastLibrarySync(timestamp)
+    self.data.last_library_sync = timestamp
+    self:write()
+end
+
+-- The timer only counted time KOReader was awake and restarted with it, so
+-- on an e-reader that's mostly locked it rarely fired. Replaced by the
+-- library sync when due after waking.
+function GrimmorySettings:getSyncPeriodically()
+    return false
 end
 
 function GrimmorySettings:toggleSyncPeriodically()
@@ -375,6 +395,19 @@ end
 
 function GrimmorySettings:toggleSyncOnSuspend()
     self.data.sync_on_suspend = not self:getSyncOnSuspend()
+    self:write()
+end
+
+function GrimmorySettings:getSyncOnResume()
+    if self.data.sync_on_resume == nil then
+        return DEFAULTS.sync_on_resume
+    end
+
+    return self.data.sync_on_resume
+end
+
+function GrimmorySettings:toggleSyncOnResume()
+    self.data.sync_on_resume = not self:getSyncOnResume()
     self:write()
 end
 
