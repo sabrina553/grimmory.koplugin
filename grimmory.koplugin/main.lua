@@ -28,9 +28,17 @@ local GrimmoryReadingRecorder = require("grimmory/reading/recorder")
 local GrimmoryLocalRepository = require("grimmory/repository")
 local GrimmoryReadingAnnotations = require("grimmory/reading/annotations")
 local GrimmoryReadingProgressManager = require("grimmory/reading/progress_manager")
+local GrimmorySyncReport = require("grimmory/sync_report")
 
 
 local logger = GrimmoryLogger:new()
+
+local SYNC_STEP_NAMES = {
+    ["push-metadata"] = _("push reading data"),
+    ["shelves"] = _("sync shelves"),
+    ["pull-books"] = _("pull books"),
+    ["remove-empty-shelves"] = _("remove empty shelves"),
+}
 
 ---@class Grimmory
 ---@field dialog_manager DialogManager
@@ -454,7 +462,7 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
         local session_error_count = 0
         local book_download_count = 0
         local book_refresh_count = 0
-        local book_error_count = 0
+        local sync_report = GrimmorySyncReport:new()
 
         local update_progress_step = function(progress_step)
             if progress_step <= last_progress_step then
@@ -485,6 +493,8 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
                 if type(progress) ~= "table" then
                     return
                 end
+
+                sync_report:record(progress)
 
                 if progress.state == "book-push-metadata" then
                     local pushed_books = progress.pushed_books or 0
@@ -540,8 +550,6 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
                         ReadCollection:_read()
                     end
 
-                elseif progress.state == "book-error" then
-                    book_error_count = book_error_count + 1
                 elseif progress.state == "book-pull-metadata" then
                     book_refresh_count = book_refresh_count + 1
                 end
@@ -603,9 +611,20 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
 
         self:refreshUI()
 
+        if sync_report:hasProblems() then
+            logger:warn(
+                "Sync finished with problems. Failed books:",
+                table.concat(sync_report.failed_books, "; "),
+                "Failed steps:",
+                table.concat(sync_report.failed_steps, ", ")
+            )
+        end
+
         if verbose then
             local message = {
-                _("Completed Grimmory sync")
+                sync_report:hasProblems()
+                    and _("Grimmory sync finished with problems")
+                    or _("Completed Grimmory sync")
             }
 
             if session_count > 0 then
@@ -624,8 +643,21 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
                 table.insert(message, T(_("%1 book(s) refreshed"), book_refresh_count))
             end
 
-            if book_error_count > 0 then
-                table.insert(message, T(_("%1 book(s) failed"), book_error_count))
+            if #sync_report.failed_books > 0 then
+                local names, hidden_count = sync_report:getFailedBookNames(5)
+                if hidden_count > 0 then
+                    names = T(_("%1 and %2 more"), names, hidden_count)
+                end
+                table.insert(message, T(_("%1 book(s) failed: %2"), #sync_report.failed_books, names))
+            end
+
+            if #sync_report.failed_steps > 0 then
+                local step_names = {}
+                for index = 1, #sync_report.failed_steps do
+                    local step = sync_report.failed_steps[index]
+                    table.insert(step_names, SYNC_STEP_NAMES[step] or step)
+                end
+                table.insert(message, T(_("Could not: %1"), table.concat(step_names, ", ")))
             end
 
             self.dialog_manager:toast(table.concat(message, "\n"))
