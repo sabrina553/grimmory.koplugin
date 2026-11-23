@@ -1,5 +1,6 @@
 local ReadCollection = require("readcollection")
 local md5 = require("ffi/MD5")
+local ffiutil = require("ffi/util")
 local util = require("util")
 
 local GrimmoryLogger = require("grimmory/logger")
@@ -248,6 +249,7 @@ function GrimmorySynchronize:pushAllPendingBookMetadata(callback)
         end
 
         pcall(self.pushBookMetadata, self, book_id, callback)
+        self:stopIfConnectionLost()
 
         callback({
             state = "push-book-metadata",
@@ -781,6 +783,7 @@ function GrimmorySynchronize:pullBooks(callback)
             seen_grimmory_ids[tostring(book.id)] = true
 
             local pull_ok, pull_path_or_message, is_downloaded = pcall(self.pullBook, self, book, callback)
+            self:stopIfConnectionLost()
             if pull_ok then
                 seen_books[pull_path_or_message] = true
 
@@ -813,6 +816,9 @@ function GrimmorySynchronize:pullBooks(callback)
             end
         end
     end
+
+    -- A list cut short by a lost connection would look like removed books.
+    self:stopIfConnectionLost()
 
     logger:dbg("Checking existing books on disk in download directory")
 
@@ -870,6 +876,51 @@ function GrimmorySynchronize:pullBooks(callback)
     ReadCollection:write()
 end
 
+-- Error raised when the server can't be reached, so the caller can retry later
+-- instead of treating it as a failed sync. Plain string: it crosses the
+-- subprocess boundary as JSON.
+GrimmorySynchronize.CONNECTION_LOST = "grimmory-connection-lost"
+
+-- Seconds to keep retrying the server before giving up; set per sync by the
+-- caller (0 for a manual sync, which reports straight away).
+GrimmorySynchronize.wait_for_server_seconds = 0
+
+-- Seconds between attempts while waiting for the network after waking.
+local SERVER_RETRY_INTERVAL = 3
+
+function GrimmorySynchronize:stopIfConnectionLost()
+    if self.api:hasLostConnection() then
+        logger:warn("Lost the connection to the server, stopping this sync")
+        error(GrimmorySynchronize.CONNECTION_LOST, 0)
+    end
+end
+
+-- The radio often reports connected a few seconds before DNS and TLS work
+-- after waking, so retry the cheapest request for a short while.
+function GrimmorySynchronize:waitForServer()
+    local deadline = os.time() + (self.wait_for_server_seconds or 0)
+
+    while true do
+        self.api:resetConnectionState()
+
+        if self:checkForHealthyServer() then
+            return
+        end
+
+        if not self.api:hasLostConnection() then
+            -- The server answered with an error: waiting won't fix that.
+            error("Cannot connect to valid server")
+        end
+
+        if os.time() + SERVER_RETRY_INTERVAL > deadline then
+            error(GrimmorySynchronize.CONNECTION_LOST, 0)
+        end
+
+        logger:info("Server not reachable yet, trying again in", SERVER_RETRY_INTERVAL, "s")
+        ffiutil.sleep(SERVER_RETRY_INTERVAL)
+    end
+end
+
 ---@return boolean ok
 function GrimmorySynchronize:checkForHealthyServer()
     local ok, version = self.api:getServerVersion()
@@ -883,9 +934,7 @@ function GrimmorySynchronize:checkForHealthyServer()
 end
 
 function GrimmorySynchronize:synchronizeAll(callback)
-    if not self:checkForHealthyServer() then
-        return error("Cannot connect to valid server")
-    end
+    self:waitForServer()
 
     -- First, tell Grimmory about all of our reading
     logger:info("Pushing pending book metadata")
@@ -894,6 +943,7 @@ function GrimmorySynchronize:synchronizeAll(callback)
     -- Then pull the shelves
     logger:info("Synchronizing shelves")
     self:synchronizeShelves(callback)
+    self:stopIfConnectionLost()
 
     -- And only afterwards, pull new books because our
     -- reading progress may change the books we sync down
@@ -907,9 +957,7 @@ function GrimmorySynchronize:synchronizeAll(callback)
 end
 
 function GrimmorySynchronize:synchronizeBook(book_path, refresh_book, callback)
-    if not self:checkForHealthyServer() then
-        error("Cannot connect to valid server")
-    end
+    self:waitForServer()
 
     -- Get book ID
     local book_ok, book_id, grimmory_id = self.repository:upsertBook(book_path)

@@ -193,10 +193,27 @@ function Grimmory:onExit()
     self.scheduler:clear()
     self.executor:clear()
     self:cancelOfflineRetry()
+    self:cancelWakeWork()
+end
+
+-- Seconds after waking before Grimmory touches the network: lets the firmware
+-- bring wifi back and keeps the first touches after unlocking responsive.
+local WAKE_SETTLE_SECONDS = 5
+
+-- Seconds an automatic sync keeps retrying the server before giving up.
+local AUTOMATIC_SERVER_WAIT_SECONDS = 25
+
+function Grimmory:cancelWakeWork()
+    if self.wake_work then
+        UIManager:unschedule(self.wake_work)
+        self.wake_work = nil
+    end
 end
 
 function Grimmory:onSuspend()
     logger:dbg("Device is suspending")
+
+    self:cancelWakeWork()
 
     self.reading_recorder:onSessionEnd()
 
@@ -209,7 +226,12 @@ function Grimmory:onResume()
     logger:dbg("Device is resuming")
 
     if self.settings:getSyncReadingProgress() then
-        self:pullProgressForOpenBook()
+        self:cancelWakeWork()
+        self.wake_work = function()
+            self.wake_work = nil
+            self:pullProgressForOpenBook()
+        end
+        UIManager:scheduleIn(WAKE_SETTLE_SECONDS, self.wake_work)
     end
 
     self.reading_recorder:onSessionStart()
@@ -438,6 +460,7 @@ function Grimmory:scheduleOfflineRetry(book_path)
 
     if minutes == nil then
         logger:info("Still no connectivity, waiting for the next automatic sync")
+        self.menu:setLastSyncProblem(_("Last sync failed: no connection (tap to retry)"))
         self:cancelOfflineRetry()
         return
     end
@@ -476,6 +499,11 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
 
         self.is_synchronizing = true
         self.menu:onGrimmorySyncStart(queue_terminate)
+        self.menu:setLastSyncProblem(nil)
+
+        -- A manual sync reports straight away; an automatic one gives the
+        -- network time to come back first.
+        self.synchronizer.wait_for_server_seconds = verbose and 0 or AUTOMATIC_SERVER_WAIT_SECONDS
 
         local update_callback, close_callback
         if verbose then
@@ -599,8 +627,12 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
                         _("Grimmory synchronization has been interrupted")
                     )
                 end
-            elseif result == GrimmoryExecutor.NO_CONNECTIVITY then
+            elseif result == GrimmoryExecutor.NO_CONNECTIVITY or result == GrimmorySynchronize.CONNECTION_LOST then
                 logger:err("Cannot sync without connectivity")
+
+                if result == GrimmorySynchronize.CONNECTION_LOST then
+                    GrimmoryExecutor.dropStaleWifi()
+                end
 
                 if verbose then
                     self.dialog_manager:toast(
@@ -610,6 +642,8 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
                     -- Automatic syncs stay invisible: try again later instead.
                     self:scheduleOfflineRetry(book_path)
                 end
+
+                self.menu:setLastSyncProblem(_("Last sync failed: no connection (tap to retry)"))
             else
                 logger:err("Failed sync", result)
 

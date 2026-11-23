@@ -34,6 +34,13 @@ function GrimmoryMenu:onGrimmorySyncComplete()
     self.interrupt_sync = nil
 end
 
+-- Shown at the top of the menu until the next sync starts, so a quiet
+-- automatic failure is visible without a pop-up.
+---@param text string|nil
+function GrimmoryMenu:setLastSyncProblem(text)
+    self.last_sync_problem = text
+end
+
 function GrimmoryMenu:getAboutMenu()
     -- These won't change after the plugin starts up
     local repository = PluginMetadata.getRepository()
@@ -330,6 +337,19 @@ function GrimmoryMenu:getTopMenu()
                         })
                         UIManager:show(dialog)
                     end
+                end,
+                separator = true,
+            }
+        )
+    end
+
+    if self.last_sync_problem ~= nil and self.interrupt_sync == nil then
+        table.insert(
+            menu, 1,
+            {
+                text = self.last_sync_problem,
+                callback = function()
+                    UIManager:broadcastEvent(Event:new("GrimmorySync", true))
                 end,
                 separator = true,
             }

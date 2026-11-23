@@ -136,6 +136,24 @@ end
 local wifi_uses = 0
 local wifi_turned_on_by_us = false
 
+-- After waking the radio can report connected while DNS and TLS fail. Powering
+-- it down (when no job needs it) makes the next attempt a fresh silent connect.
+function GrimmoryExecutor.dropStaleWifi()
+    if wifi_uses > 0 then
+        return
+    end
+
+    logger:info("Connection unusable, powering WiFi down until the next attempt")
+    wifi_turned_on_by_us = false
+    pcall(NetworkManager.turnOffWifi, NetworkManager)
+
+    if Device:isPocketBook() then
+        pcall(function()
+            require("ffi/inkview").WiFiPower(0)
+        end)
+    end
+end
+
 local function release_wifi()
     wifi_uses = wifi_uses - 1
 
@@ -388,6 +406,10 @@ local function enable_wifi(timeout)
     return wifi_needs_disable
 end
 
+-- Progress messages handled before handing back to the UI, so touches are
+-- read within one tick even when a sync reports quickly.
+local MAX_MESSAGES_PER_TICK = 10
+
 ---@alias GrimmoryRunnableProgressCallback function(state: any, terminate: function): bool
 ---@alias GrimmoryRunnable function(callback: BackgroundRunnableProgressCallback)
 ---@alias GrimmoryBackgroundStart function(runnable: GrimmoryRunnable, progress: GrimmoryRunnableProgressCallback)
@@ -449,6 +471,14 @@ function GrimmoryExecutor:background(callback, with_wifi)
 
             local new_subprocess_pid, parent_read_fd = ffiutil.runInSubProcess(
                 function(my_pid, child_write_fd)
+                    -- KOReader starts children at nice 5. Touch handling in the
+                    -- parent misses its 600 ms hold threshold while a sync
+                    -- hashes and downloads at that priority, so drop to the
+                    -- lowest and let the kernel always run the reader first.
+                    pcall(function()
+                        ffi.C.setpriority(ffi.C.PRIO_PROCESS, 0, 19)
+                    end)
+
                     ---@type GrimmoryRunnableProgressCallback
                     local function progress_callback(state)
                         local write_ok, write_result = writeObjectToFD(child_write_fd, state)
@@ -515,7 +545,7 @@ function GrimmoryExecutor:background(callback, with_wifi)
 
                         messages_received = messages_received + 1
 
-                        if messages_received > 100 then
+                        if messages_received > MAX_MESSAGES_PER_TICK then
                             -- If we keep receiving messages we should hand
                             -- back to the UI thread for a bit.
                             break
