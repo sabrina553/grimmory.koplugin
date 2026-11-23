@@ -2,6 +2,7 @@ local ReadCollection = require("readcollection")
 local md5 = require("ffi/MD5")
 local ffiutil = require("ffi/util")
 local util = require("util")
+local BookHash = require("grimmory/book_hash")
 
 local GrimmoryLogger = require("grimmory/logger")
 local KOReaderStatistics = require("grimmory/koreader_statistics")
@@ -654,7 +655,7 @@ function GrimmorySynchronize:getBookDownloadPath(book)
 
         for _, local_book in ipairs(existing_books) do
             if util.fileExists(local_book.book_path) then
-                if util.partialMD5(local_book.book_path) == local_book.book_md5 then
+                if BookHash.partialMD5(local_book.book_path) == local_book.book_md5 then
                     return local_book.book_path
                 end
 
@@ -800,8 +801,8 @@ function GrimmorySynchronize:refreshBook(book_path, book_id, grimmory_id)
         return true, book_id
     end
 
-    local temp_partial_md5 = util.partialMD5(temp_path)
-    local book_partial_md5 = util.partialMD5(book_path)
+    local temp_partial_md5 = BookHash.partialMD5(temp_path)
+    local book_partial_md5 = BookHash.partialMD5(book_path)
 
 
     local backup_path = book_path .. ".bak"
@@ -1241,6 +1242,9 @@ function GrimmorySynchronize:synchronizeAll(callback, check_every_book)
     if succeeded_steps == 0 then
         error("Every synchronization step failed")
     end
+
+    local hash_hits, hash_misses = BookHash.stats()
+    logger:dbg("Book hashes reused", hash_hits, "computed", hash_misses)
 
     logger:info("Done synchronizing")
 end
