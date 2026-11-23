@@ -194,6 +194,32 @@ function DocMetadata:isBook(path, book)
     return false
 end
 
+-- KOReader's own book status: "reading", "complete" or "abandoned" (shown as
+-- "On hold"), plus the day it was last changed.
+---@param path string
+---@return string|nil status
+---@return string|nil modified YYYY-MM-DD
+function DocMetadata:getReadStatus(path)
+    local summary = self:getDocSettings(path):readSetting("summary") or {}
+    return summary.status, summary.modified
+end
+
+---@param path string
+---@param status string
+---@param date string|nil YYYY-MM-DD; today when missing
+function DocMetadata:setReadStatus(path, status, date)
+    local settings = self:getDocSettings(path)
+
+    apply_dom_version(settings)
+
+    local summary = settings:readSetting("summary") or {}
+    summary.status = status
+    summary.modified = date or os.date("%Y-%m-%d")
+    settings:saveSetting("summary", summary)
+
+    settings:flush()
+end
+
 ---@param path string
 function DocMetadata:clearProgress(path)
     local settings = self:getDocSettings(path)
