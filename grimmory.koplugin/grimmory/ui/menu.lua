@@ -419,6 +419,15 @@ function GrimmoryMenu:getTopMenu()
         table.insert(
             menu, 1,
             {
+                text = _("Sync in progress… (tap to see the result when done)"),
+                callback = function()
+                    UIManager:broadcastEvent(Event:new("GrimmoryWatchSync"))
+                end,
+            }
+        )
+        table.insert(
+            menu, 2,
+            {
                 text = _("Interrupt Current Sync"),
                 callback = function()
                     if self.interrupt_sync ~= nil then
