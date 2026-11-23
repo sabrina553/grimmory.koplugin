@@ -39,3 +39,4 @@ fix/share-sync-state
 feat/sync-read-status
 feat/automatic-sync-menu
 feat/refresh-changed-books-default
+chore/fold-menus-into-settings
