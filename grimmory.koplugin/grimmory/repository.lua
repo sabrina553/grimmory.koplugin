@@ -965,6 +965,8 @@ end
 ---@alias RepositorySyncType
 ---| "progress"
 ---| "sessions"
+---| "metadata"
+---| "metadata-v2"
 
 ---@param book_id number
 ---@param sync_type RepositorySyncType
