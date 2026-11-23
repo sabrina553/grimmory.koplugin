@@ -49,6 +49,16 @@ function GrimmorySynchronize:pushBookProgress(book_id, callback)
         return
     end
 
+    local moved_ok, moved = self.repository:hasPositionMovedSince(book_id, last_synced_at or 0)
+
+    if moved_ok and not moved then
+        -- Opened and closed without reading: pushing would mark it as being
+        -- read on Grimmory and anything it forwards to, such as Hardcover.
+        logger:info("Book opened without reading, not pushing progress:", book_id)
+        self.repository:updateBookSyncTimestamp(book_id, "progress", progress.end_time)
+        return
+    end
+
     logger:info("Synchronizing reading progress for:", book_id, ";", last_synced_at, "->", progress.end_time)
     local ok = self.reading_progress_manager:pushRemoteProgress(progress)
 
