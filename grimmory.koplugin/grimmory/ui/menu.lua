@@ -1,4 +1,6 @@
 local _ = require("gettext")
+-- Shared by every Grimmory instance, so any menu shows a running sync.
+local sync_state = require("grimmory/sync_state").values
 local T = require("ffi/util").template
 
 local Device = require("device")
@@ -28,18 +30,18 @@ function GrimmoryMenu:new(o)
 end
 
 function GrimmoryMenu:onGrimmorySyncStart(interrupt_sync_callback)
-    self.interrupt_sync = interrupt_sync_callback
+    sync_state.interrupt_sync = interrupt_sync_callback
 end
 
 function GrimmoryMenu:onGrimmorySyncComplete()
-    self.interrupt_sync = nil
+    sync_state.interrupt_sync = nil
 end
 
 -- Shown at the top of the menu until the next sync starts, so a quiet
 -- automatic failure is visible without a pop-up.
 ---@param text string|nil
 function GrimmoryMenu:setLastSyncProblem(text)
-    self.last_sync_problem = text
+    sync_state.last_sync_problem = text
 end
 
 function GrimmoryMenu:getAboutMenu()
@@ -296,7 +298,7 @@ function GrimmoryMenu:getDownloadOptionsMenu()
             text = _("Merge Split Reading Statistics"),
             help_text = _("Books downloaded again before Grimmory kept their statistics together can have their reading history split over several records. Merge records with the same title and authors whose old file is gone. Asks first; a backup is made."),
             enabled_func = function()
-                return self.interrupt_sync == nil
+                return sync_state.interrupt_sync == nil
             end,
             keep_menu_open = true,
             callback = function()
@@ -311,7 +313,7 @@ local PRUNE_AFTER_DAYS = 90
 
 function GrimmoryMenu:getDatabaseMenu()
     local function is_idle()
-        return self.interrupt_sync == nil
+        return sync_state.interrupt_sync == nil
     end
 
     return {
@@ -433,7 +435,7 @@ function GrimmoryMenu:getTopMenu()
         },
     }
 
-    if self.interrupt_sync == nil then
+    if sync_state.interrupt_sync == nil then
         table.insert(
             menu, 1,
             {
@@ -475,11 +477,11 @@ function GrimmoryMenu:getTopMenu()
             {
                 text = _("Interrupt Current Sync"),
                 callback = function()
-                    if self.interrupt_sync ~= nil then
+                    if sync_state.interrupt_sync ~= nil then
                         local dialog = ConfirmBox:new({
                             text = _("Are you sure you want to interrupt synchronization?"),
                             ok_callback = function()
-                                pcall(self.interrupt_sync)
+                                pcall(sync_state.interrupt_sync)
                             end,
                         })
                         UIManager:show(dialog)
@@ -490,11 +492,11 @@ function GrimmoryMenu:getTopMenu()
         )
     end
 
-    if self.last_sync_problem ~= nil and self.interrupt_sync == nil then
+    if sync_state.last_sync_problem ~= nil and sync_state.interrupt_sync == nil then
         table.insert(
             menu, 1,
             {
-                text = self.last_sync_problem,
+                text = sync_state.last_sync_problem,
                 callback = function()
                     UIManager:broadcastEvent(Event:new("GrimmorySync", true))
                 end,
@@ -509,7 +511,7 @@ function GrimmoryMenu:getTopMenu()
             {
                 text = _("Sync This Book"),
                 enabled_func = function()
-                    return self.settings:getBaseUri() ~= "" and self.interrupt_sync == nil
+                    return self.settings:getBaseUri() ~= "" and sync_state.interrupt_sync == nil
                 end,
                 callback = function()
                     UIManager:broadcastEvent(Event:new("GrimmorySyncOpenBook", true))

@@ -19,6 +19,7 @@ local GrimmoryDocMetadata = require("grimmory/doc_metadata")
 local GrimmoryDialogManager = require("grimmory/ui/dialog_manager")
 local GrimmoryExecutor = require("grimmory/executor")
 local GrimmoryMenu = require("grimmory/ui/menu")
+local SyncState = require("grimmory/sync_state")
 local GrimmorySettings = require("grimmory/settings")
 local GrimmoryAPI = require("grimmory/grimmory_api")
 local GrimmorySynchronize = require("grimmory/synchronize")
@@ -55,11 +56,8 @@ local Grimmory = WidgetContainer:extend{
     periodic_sync_update = nil,
     release_check_cancel = nil,
     menu = nil,
-    is_synchronizing = false,
-    -- Sleep tracking so a sync killed by wifi dropping on suspend can be retried
-    is_suspended = false,
-    suspend_count = 0,
-    interrupted_sync = nil,
+    -- is_synchronizing, sleep tracking and retry state live in
+    -- grimmory/sync_state.lua, shared by every instance.
 }
 
 function Grimmory:onDispatcherRegisterActions()
@@ -107,6 +105,8 @@ function Grimmory:onDispatcherRegisterActions()
 end
 
 function Grimmory:init()
+    SyncState.share(self, Grimmory)
+
     self.scheduler = GrimmoryScheduler:new()
     self.settings = GrimmorySettings:new()
 
@@ -240,6 +240,12 @@ function Grimmory:cancelWakeWork()
     end
 end
 
+-- Timers outlive the instance that set them (the reader closes, the file
+-- browser takes over), so they act through whichever instance is current.
+function Grimmory:liveInstance()
+    return SyncState.current or self
+end
+
 function Grimmory:onExit()
     logger:dbg("Exiting")
 
@@ -288,7 +294,7 @@ function Grimmory:onResume()
         self:cancelWakeWork()
         self.wake_work = function()
             self.wake_work = nil
-            self:pullProgressForOpenBook()
+            self:liveInstance():pullProgressForOpenBook()
         end
         UIManager:scheduleIn(WAKE_SETTLE_SECONDS, self.wake_work)
     end
@@ -360,7 +366,7 @@ function Grimmory:scheduleInterruptedSyncRetry()
 
         releaseStandby()
 
-        if not self:isReadyToSync() then
+        if not self:liveInstance():isReadyToSync() then
             logger:info("Skipping retry of interrupted sync, not ready to sync")
             return
         end
@@ -372,12 +378,12 @@ function Grimmory:scheduleInterruptedSyncRetry()
         if pending.report then
             self.report_current_sync = true
             -- Replaces the "will continue on wake" message, which stays until tapped
-            self.dialog_manager:toast(_("Continuing Grimmory sync…"))
+            self:liveInstance().dialog_manager:toast(_("Continuing Grimmory sync…"))
         end
 
         -- The 4th argument (check every book) only exists where that sync
         -- mode does; elsewhere it is ignored.
-        self:onGrimmorySync(false, pending.book_path, pending.refresh_book, pending.check_every_book)
+        self:liveInstance():onGrimmorySync(false, pending.book_path, pending.refresh_book, pending.check_every_book)
     end
 
     holding_standby = true
@@ -428,7 +434,7 @@ function Grimmory:onCloseDocument()
         -- The library is rebuilt as the book closes; syncing at the same
         -- time makes touches lag enough to be read as holds.
         UIManager:scheduleIn(WAKE_SETTLE_SECONDS, function()
-            self:onGrimmorySync(false)
+            self:liveInstance():onGrimmorySync(false)
         end)
     end
 end
@@ -713,7 +719,7 @@ function Grimmory:scheduleOfflineRetry(book_path)
     self.offline_retry_count = count
     self.offline_retry = function()
         self.offline_retry = nil
-        self:onGrimmorySync(false, book_path)
+        self:liveInstance():onGrimmorySync(false, book_path)
     end
     UIManager:scheduleIn(minutes * 60, self.offline_retry)
 end
