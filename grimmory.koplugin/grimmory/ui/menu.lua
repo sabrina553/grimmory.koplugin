@@ -259,7 +259,18 @@ function GrimmoryMenu:getDownloadOptionsMenu()
                 self.settings:toggleDownloadRemoveBooks()
                 UIManager:broadcastEvent(Event:new("GrimmorySettingsChanged"))
             end,
-        }
+        },
+        {
+            text = _("Re-download Books Changed on the Server"),
+            help_text = _("When a full sync finds that Grimmory no longer recognises a downloaded book's file, download it again. Reading position, highlights and statistics are kept. A backup of KOReader's statistics database is made before it is changed."),
+            checked_func = function()
+                return self.settings:getDownloadRefreshChangedBooks()
+            end,
+            callback = function()
+                self.settings:toggleDownloadRefreshChangedBooks()
+                UIManager:broadcastEvent(Event:new("GrimmorySettingsChanged"))
+            end,
+        },
     }
 end
 
