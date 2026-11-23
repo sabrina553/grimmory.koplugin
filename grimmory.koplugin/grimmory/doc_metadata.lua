@@ -57,6 +57,29 @@ function DocMetadata:getDocSettings(path, fresh)
     return DocSettings:open(path)
 end
 
+---@return table|nil props The metadata stored in the book file itself
+function DocMetadata:readFileProps(path)
+    local props = nil
+    local document = DocumentRegistry:hasProvider(path) and DocumentRegistry:openDocument(path)
+    if document then
+        local loaded = true
+        if document.loadDocument then -- CreDocument
+            -- load only metadata
+            if not document:loadDocument(false) then
+                -- failed loading, calling other methods would segfault
+                loaded = false
+            end
+        end
+
+        if loaded then
+            props = document:getProps()
+        end
+        document:close()
+    end
+
+    return props
+end
+
 function DocMetadata:getDocProps(path)
     local book_md5 = util.partialMD5(path)
 
@@ -78,22 +101,7 @@ function DocMetadata:getDocProps(path)
     logger:dbg("Falling back to reading document directly")
 
     -- If still no book_props, open the document to get them
-    local document = DocumentRegistry:hasProvider(path) and DocumentRegistry:openDocument(path)
-    if document then
-        local loaded = true
-        if document.loadDocument then -- CreDocument
-            -- load only metadata
-            if not document:loadDocument(false) then
-                -- failed loading, calling other methods would segfault
-                loaded = false
-            end
-        end
-
-        if loaded then
-            props = document:getProps()
-        end
-        document:close()
-    end
+    props = self:readFileProps(path)
 
     if props ~= nil then
         self.props_cache:insert(book_md5, props)
