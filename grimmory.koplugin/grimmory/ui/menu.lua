@@ -175,6 +175,11 @@ end
 function GrimmoryMenu:getSyncOptionsMenu()
     return {
         {
+            text = _("Automatic Sync"),
+            sub_item_table = self:getAutomaticSyncOptionsMenu(),
+            separator = true,
+        },
+        {
             text = _("Sync Reading Sessions"),
             checked_func = function()
                 return self.settings:getSyncReadingSessions()
@@ -244,6 +249,17 @@ end
 
 function GrimmoryMenu:getDownloadOptionsMenu()
     return {
+        {
+            text = _("Download Books"),
+            checked_func = function()
+                return self.settings:getDownloadsBooks()
+            end,
+            callback = function()
+                self.settings:toggleDownloadsBooks()
+                UIManager:broadcastEvent(Event:new("GrimmorySettingsChanged"))
+            end,
+            separator = true,
+        },
         {
             text = _("Set Download Directory"),
             keep_menu_open = true,
@@ -395,23 +411,8 @@ function GrimmoryMenu:getSettingsMenu()
             end,
         },
         {
-            text = _("Automatic Sync"),
-            sub_item_table = self:getAutomaticSyncOptionsMenu()
-        },
-        {
             text = _("Sync Configuration"),
             sub_item_table = self:getSyncOptionsMenu(),
-            separator = true,
-        },
-        {
-            text = _("Download Books"),
-            checked_func = function()
-                return self.settings:getDownloadsBooks()
-            end,
-            callback = function()
-                self.settings:toggleDownloadsBooks()
-                UIManager:broadcastEvent(Event:new("GrimmorySettingsChanged"))
-            end,
         },
         {
             text = _("Download Configuration"),
