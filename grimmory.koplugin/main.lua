@@ -245,6 +245,9 @@ local INTERRUPTED_SYNC_RETRY_DELAY = 5
 -- between checks, up to this many times, rather than dropping the retry.
 local INTERRUPTED_SYNC_BUSY_DELAY = 30
 local INTERRUPTED_SYNC_BUSY_ATTEMPTS = 10
+-- Locking again during a retry interrupts it too; after this many in a row
+-- the failure is reported instead.
+local MAX_SLEEP_RETRIES = 3
 
 function Grimmory:scheduleInterruptedSyncRetry()
     local pending = self.interrupted_sync
@@ -252,7 +255,8 @@ function Grimmory:scheduleInterruptedSyncRetry()
         return
     end
 
-    -- Clear up front so each interruption gets one retry at most
+    -- Clear up front so each interruption is retried once; a retry cut off
+    -- by sleep again records its own interruption.
     self.interrupted_sync = nil
 
     local attempts = 0
@@ -284,12 +288,14 @@ function Grimmory:scheduleInterruptedSyncRetry()
             return
         end
 
-        logger:info("Retrying sync interrupted by sleep")
-        self.next_sync_is_retry = true
+        logger:info("Retrying sync interrupted by sleep, attempt", pending.retries)
+        self.next_sync_retries = pending.retries
 
         -- Run quietly, but show the result if the user asked to see it
         if pending.report then
             self.report_current_sync = true
+            -- Replaces the "will continue on wake" message, which stays until tapped
+            self.dialog_manager:toast(_("Continuing Grimmory sync…"))
         end
 
         -- The 4th argument (check every book) only exists where that sync
@@ -520,8 +526,8 @@ end
 function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
     -- Set by scheduleInterruptedSyncRetry; a flag rather than a parameter
     -- so other branches can add their own parameters.
-    local is_retry = self.next_sync_is_retry == true
-    self.next_sync_is_retry = false
+    local retries = self.next_sync_retries or 0
+    self.next_sync_retries = nil
 
     -- Tell everything to flush so we have data available for our sync
     UIManager:broadcastEvent(Event:new("FlushSettings"))
@@ -558,7 +564,7 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
         local started_while_suspended = self.is_suspended
 
         local function interruptedBySleep()
-            return not is_retry and (
+            return retries < MAX_SLEEP_RETRIES and (
                 self.is_suspended
                 or started_while_suspended
                 or self.suspend_count ~= suspend_count_at_start
@@ -579,6 +585,7 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book)
                 book_path = book_path,
                 refresh_book = refresh_book,
                 check_every_book = self.sync_check_every_book,
+                retries = retries + 1,
             }
             -- Carried by the retry now, so it doesn't leak to another sync
             self.report_current_sync = false
