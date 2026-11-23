@@ -969,6 +969,7 @@ end
 ---| "metadata-v2"
 ---| "metadata-stale"
 ---| "metadata-file-checked"
+---| "read-status"
 
 ---@param book_id number
 ---@param sync_type RepositorySyncType
