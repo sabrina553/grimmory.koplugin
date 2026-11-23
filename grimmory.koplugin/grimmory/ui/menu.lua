@@ -418,23 +418,23 @@ function GrimmoryMenu:getSettingsMenu()
             sub_item_table = self:getDownloadOptionsMenu(),
             separator = true,
         },
+        {
+            text = _("Database"),
+            sub_item_table = self:getDatabaseMenu(),
+        },
+        {
+            text = _("About Grimmory Sync"),
+            sub_item_table = self:getAboutMenu(),
+        },
     }
 end
 
 function GrimmoryMenu:getTopMenu()
     local menu = {
+        -- Database and About are rarely needed, so they live in Settings.
         {
             text = _("Settings"),
             sub_item_table = self:getSettingsMenu(),
-        },
-        {
-            text = _("Database"),
-            sub_item_table = self:getDatabaseMenu(),
-            separator = true,
-        },
-        {
-            text = _("About Grimmory Sync"),
-            sub_item_table = self:getAboutMenu(),
         },
     }
 
