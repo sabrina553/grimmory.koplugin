@@ -32,3 +32,4 @@ fix/sync-after-wake
 fix/stats-follow-metadata-changes
 feat/merge-split-statistics
 chore/explain-database-tools
+perf/hash-once-per-sync
