@@ -1,0 +1,41 @@
+# Branches merged into `dev` by scripts/rebuild-dev.sh, in this order.
+# One per line. Remove a branch once upstream has merged it.
+# `dev-tooling` is always merged first and needn't be listed.
+fix/sync-wifi-before-connectivity-check
+fix/wifi-ebusy-pending-connection
+fix/merge-stale-book-rows
+fix/skip-progress-without-reading
+fix/download-partial-files
+fix/reuse-existing-book-path
+feat/refresh-changed-books
+fix/partial-sync-reporting
+fix/push-progress-event-name
+feat/skip-unchanged-progress-pulls
+chore/clearer-sync-names
+perf/faster-book-pull
+fix/remove-books-with-changed-hash
+fix/stop-sync-on-restart
+fix/iso8601-time-zones
+feat/prune-database
+fix/advance-past-skipped-sessions
+perf/shared-db-connection
+fix/reload-only-when-changed
+fix/shared-wifi-between-jobs
+feat/sync-in-progress-feedback
+feat/hold-sleep-during-sync
+feat/retry-interrupted-sync
+fix/silent-wifi
+chore/settings-submenu
+fix/keep-menu-open
+feat/background-wifi-connect
+fix/sync-after-wake
+fix/stats-follow-metadata-changes
+feat/merge-split-statistics
+chore/explain-database-tools
+perf/hash-once-per-sync
+feat/light-sync-on-lock
+fix/refresh-on-metadata-change
+fix/share-sync-state
+feat/sync-read-status
+feat/automatic-sync-menu
+feat/refresh-changed-books-default
