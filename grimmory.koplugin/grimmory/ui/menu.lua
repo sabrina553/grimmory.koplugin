@@ -284,17 +284,6 @@ function GrimmoryMenu:getDownloadOptionsMenu()
             end,
         },
         {
-            text = _("Re-download Books Changed on the Server"),
-            help_text = _("When a full sync finds that Grimmory no longer recognises a downloaded book's file, download it again. Reading position, highlights and statistics are kept. A backup of KOReader's statistics database is made before it is changed."),
-            checked_func = function()
-                return self.settings:getDownloadRefreshChangedBooks()
-            end,
-            callback = function()
-                self.settings:toggleDownloadRefreshChangedBooks()
-                UIManager:broadcastEvent(Event:new("GrimmorySettingsChanged"))
-            end,
-        },
-        {
             text = _("Merge Split Reading Statistics"),
             help_text = _("Books downloaded again before Grimmory kept their statistics together can have their reading history split over several records. Merge records with the same title and authors whose old file is gone. Asks first; a backup is made."),
             enabled_func = function()
