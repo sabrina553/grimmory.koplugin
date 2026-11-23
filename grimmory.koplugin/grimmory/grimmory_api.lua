@@ -33,6 +33,19 @@ local function from_json_number(value, default_value)
     return from_json_value(value, tonumber, default_value)
 end
 
+---@return string[]
+local function from_json_string_list(value)
+    local list = {}
+    if type(value) == "table" then
+        for _, item in ipairs(value) do
+            if type(item) == "string" then
+                table.insert(list, item)
+            end
+        end
+    end
+    return list
+end
+
 local function from_json_bool(value, default_value)
     if value == nil then
         return default_value == true
@@ -59,6 +72,16 @@ end
 ---@field isbn10 string | nil
 ---@field asin string | nil
 ---@field title string | nil
+---@field subtitle string | nil
+---@field authors string[]
+---@field series_name string | nil
+---@field series_number number | nil
+---@field series_total number | nil
+---@field publisher string | nil
+---@field published_date string | nil
+---@field language string | nil
+---@field page_count number | nil
+---@field categories string[]
 
 ---@class BookFile
 ---@field filename string
@@ -103,6 +126,16 @@ local function parse_book(book)
         isbn13 = from_json_string(book_metadata["isbn13"]),
         asin = from_json_string(book_metadata["asin"]),
         title = from_json_string(book_metadata["title"]),
+        subtitle = from_json_string(book_metadata["subtitle"]),
+        authors = from_json_string_list(book_metadata["authors"]),
+        series_name = from_json_string(book_metadata["seriesName"]),
+        series_number = from_json_number(book_metadata["seriesNumber"]),
+        series_total = from_json_number(book_metadata["seriesTotal"]),
+        publisher = from_json_string(book_metadata["publisher"]),
+        published_date = from_json_string(book_metadata["publishedDate"]),
+        language = from_json_string(book_metadata["language"]),
+        page_count = from_json_number(book_metadata["pageCount"]),
+        categories = from_json_string_list(book_metadata["categories"]),
     }
 
     local primary_file = nil
