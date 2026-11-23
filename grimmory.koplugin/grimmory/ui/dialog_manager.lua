@@ -50,7 +50,8 @@ function DialogManager:toast(text, timeout)
     return function() UIManager:close(info_message) end
 end
 
-function DialogManager:showConnectionSettings()
+---@param on_saved function|nil Called after a new value is saved, e.g. to refresh the menu
+function DialogManager:showConnectionSettings(on_saved)
     local dialog
     dialog = MultiInputDialog:new({
         title = _("Grimmory Connection"),
@@ -109,6 +110,7 @@ function DialogManager:showConnectionSettings()
                     UIManager:broadcastEvent(Event:new("GrimmorySettingsChanged"))
 
                     UIManager:close(dialog)
+                    if on_saved then on_saved() end
                 end,
             },
             },
@@ -119,7 +121,8 @@ function DialogManager:showConnectionSettings()
     dialog:onShowKeyboard()
 end
 
-function DialogManager:showTargetShelvesSettings()
+---@param on_saved function|nil Called after a new value is saved, e.g. to refresh the menu
+function DialogManager:showTargetShelvesSettings(on_saved)
     local dialog
     local ok, result = self.api:getShelves()
 
@@ -148,6 +151,7 @@ function DialogManager:showTargetShelvesSettings()
                     UIManager:broadcastEvent(Event:new("GrimmorySettingsChanged"))
 
                     UIManager:close(dialog)
+                    if on_saved then on_saved() end
                 end,
             }
         }
@@ -178,6 +182,7 @@ function DialogManager:showTargetShelvesSettings()
                         UIManager:broadcastEvent(Event:new("GrimmorySettingsChanged"))
 
                         UIManager:close(dialog)
+                        if on_saved then on_saved() end
                     end
                 }
             }
@@ -192,7 +197,8 @@ function DialogManager:showTargetShelvesSettings()
     UIManager:show(dialog)
 end
 
-function DialogManager:showSyncFrequencySettings()
+---@param on_saved function|nil Called after a new value is saved, e.g. to refresh the menu
+function DialogManager:showSyncFrequencySettings(on_saved)
     local dialog
     dialog = MultiInputDialog:new({
         title = _("Periodic Sync Frequency"),
@@ -222,6 +228,7 @@ function DialogManager:showSyncFrequencySettings()
                         UIManager:broadcastEvent(Event:new("GrimmorySettingsChanged"))
 
                         UIManager:close(dialog)
+                        if on_saved then on_saved() end
                     end,
                 },
             },
@@ -231,7 +238,8 @@ function DialogManager:showSyncFrequencySettings()
     UIManager:show(dialog)
 end
 
-function DialogManager:showSessionThresholdSettings()
+---@param on_saved function|nil Called after a new value is saved, e.g. to refresh the menu
+function DialogManager:showSessionThresholdSettings(on_saved)
     local dialog
     dialog = MultiInputDialog:new({
         title = _("Session Thresholds"),
@@ -267,6 +275,7 @@ function DialogManager:showSessionThresholdSettings()
                     UIManager:broadcastEvent(Event:new("GrimmorySettingsChanged"))
 
                     UIManager:close(dialog)
+                    if on_saved then on_saved() end
                 end,
             },
             },
@@ -277,7 +286,8 @@ function DialogManager:showSessionThresholdSettings()
     dialog:onShowKeyboard()
 end
 
-function DialogManager:showDownloadDirectorySettings()
+---@param on_saved function|nil Called after a new value is saved, e.g. to refresh the menu
+function DialogManager:showDownloadDirectorySettings(on_saved)
     local dialog
     dialog = PathChooser:new({
         title = "Download Directory",
@@ -286,6 +296,7 @@ function DialogManager:showDownloadDirectorySettings()
         path = self.settings:getDownloadDirectory(),
         onConfirm = function(newPath)
             self.settings:setDownloadDirectory(newPath)
+            if on_saved then on_saved() end
         end,
     })
 
