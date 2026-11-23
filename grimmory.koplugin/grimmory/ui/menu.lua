@@ -83,65 +83,79 @@ function GrimmoryMenu:getAboutMenu()
     }
 end
 
+-- Two kinds of automatic sync: a quick one for the book just read, when a
+-- reading session ends, and the whole library, when there's time for it.
 function GrimmoryMenu:getAutomaticSyncOptionsMenu()
     return {
         {
-            text = _("On Close Document"),
-            checked_func = function()
-                return self.settings:getSyncOnCloseDocument()
-            end,
-            callback = function()
-                self.settings:toggleSyncOnCloseDocument()
-                UIManager:broadcastEvent(Event:new("GrimmorySettingsChanged"))
-            end,
-            keep_menu_open = true,
+            text = _("Sync the Open Book"),
+            help_text = _("Quick: the book's progress, reading session and annotations."),
+            sub_item_table = {
+                {
+                    text = _("When Closing It"),
+                    help_text = _("Syncs the book a few seconds after it's closed."),
+                    checked_func = function()
+                        return self.settings:getSyncOnCloseDocument()
+                    end,
+                    callback = function()
+                        self.settings:toggleSyncOnCloseDocument()
+                        UIManager:broadcastEvent(Event:new("GrimmorySettingsChanged"))
+                    end,
+                    keep_menu_open = true,
+                },
+                {
+                    text = _("When the Reader Locks"),
+                    help_text = _("Syncs the open book when the reader locks."),
+                    checked_func = function()
+                        return self.settings:getSyncOnSuspend()
+                    end,
+                    callback = function()
+                        self.settings:toggleSyncOnSuspend()
+                        UIManager:broadcastEvent(Event:new("GrimmorySettingsChanged"))
+                    end,
+                    keep_menu_open = true,
+                },
+                {
+                    text = _("When Powering Off"),
+                    checked_func = function()
+                        return self.settings:getSyncOnPowerOff()
+                    end,
+                    callback = function()
+                        self.settings:toggleSyncOnPowerOff()
+                        UIManager:broadcastEvent(Event:new("GrimmorySettingsChanged"))
+                    end,
+                    keep_menu_open = true,
+                },
+            },
         },
         {
-            text = _("On Suspend"),
-            help_text = _("Syncs the open book's progress, reading session and annotations when the reader locks. The whole library is synced by the other triggers."),
-            checked_func = function()
-                return self.settings:getSyncOnSuspend()
-            end,
-            callback = function()
-                self.settings:toggleSyncOnSuspend()
-                UIManager:broadcastEvent(Event:new("GrimmorySettingsChanged"))
-            end,
-            keep_menu_open = true,
-        },
-        {
-            text = _("On Power Off"),
-            checked_func = function()
-                return self.settings:getSyncOnPowerOff()
-            end,
-            callback = function()
-                self.settings:toggleSyncOnPowerOff()
-                UIManager:broadcastEvent(Event:new("GrimmorySettingsChanged"))
-            end,
-            keep_menu_open = true,
-            separator = true,
-        },
-        {
-            text = _("Periodically Sync"),
-            checked_func = function()
-                return self.settings:getSyncPeriodically()
-            end,
-            callback = function()
-                self.settings:toggleSyncPeriodically()
-                UIManager:broadcastEvent(Event:new("GrimmorySettingsChanged"))
-            end,
-            keep_menu_open = true,
-        },
-        {
-            text_func = function()
-                local frequency = self.settings:getSyncFrequency()
-                return T(_("Frequency: %1 minutes"), frequency)
-            end,
-            keep_menu_open = true,
-            callback = function(touchmenu_instance)
-                self.dialog_manager:showSyncFrequencySettings(function()
-                    touchmenu_instance:updateItems()
-                end)
-            end,
+            text = _("Sync the Library"),
+            help_text = _("Everything: books, shelves, progress, read status and details changed on the server."),
+            sub_item_table = {
+                {
+                    text = _("When Due, After Waking"),
+                    help_text = _("Once the reader has been awake for 5 minutes (after unlocking or starting KOReader), syncs the library if the last successful library sync is older than the interval. Time asleep counts."),
+                    checked_func = function()
+                        return self.settings:getSyncOnResume()
+                    end,
+                    callback = function()
+                        self.settings:toggleSyncOnResume()
+                        UIManager:broadcastEvent(Event:new("GrimmorySettingsChanged"))
+                    end,
+                    keep_menu_open = true,
+                },
+                {
+                    text_func = function()
+                        return T(_("Interval: %1 hours"), self.settings:getLibrarySyncIntervalHours())
+                    end,
+                    keep_menu_open = true,
+                    callback = function(touchmenu_instance)
+                        self.dialog_manager:showLibrarySyncIntervalSettings(function()
+                            touchmenu_instance:updateItems()
+                        end)
+                    end,
+                },
+            },
             separator = true,
         },
         {
