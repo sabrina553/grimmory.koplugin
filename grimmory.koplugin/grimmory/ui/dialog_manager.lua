@@ -11,6 +11,8 @@ local PathChooser = require("ui/widget/pathchooser")
 local ProgressbarDialog = require("ui/widget/progressbardialog")
 
 local GrimmoryLogger = require("grimmory/logger")
+local DocMetadata = require("grimmory/doc_metadata")
+local KOReaderStatistics = require("grimmory/koreader_statistics")
 
 local logger = GrimmoryLogger:new()
 
@@ -445,6 +447,63 @@ function DialogManager:showApplyProgressConfirmation(progress)
     })
 
     UIManager:show(dialog)
+end
+
+
+-- Titles shown in the confirmation; the rest are counted.
+local MERGE_LIST_LIMIT = 8
+
+function DialogManager:showMergeSplitStatistics()
+    local close_checking = self:toast(_("Looking for split reading statistics…"), 0)
+    UIManager:forceRePaint()
+
+    local present = KOReaderStatistics.findPresentBooks(self.settings:getDownloadDirectory())
+    local find_ok, split_books = KOReaderStatistics.findSplitBooks(present, function(path)
+        return DocMetadata:readFileProps(path)
+    end)
+    close_checking()
+
+    if not find_ok then
+        logger:err("Could not read statistics database:", split_books)
+        self:toast(_("Could not read KOReader's statistics; nothing was changed"))
+        return
+    end
+
+    if #split_books == 0 then
+        self:toast(_("No split reading statistics found"))
+        return
+    end
+
+    local lines = {}
+    for i, book in ipairs(split_books) do
+        if i > MERGE_LIST_LIMIT then
+            table.insert(lines, T(_("…and %1 more"), #split_books - MERGE_LIST_LIMIT))
+            break
+        end
+        if book.repoint_md5 then
+            table.insert(lines, T(_("• %1 (%2 records, linked to the current file)"), book.title, #book.merge_ids + 1))
+        else
+            table.insert(lines, T(_("• %1 (%2 records)"), book.title, #book.merge_ids + 1))
+        end
+    end
+
+    UIManager:show(ConfirmBox:new({
+        text = T(
+            _("Merge the reading statistics of %1 book(s) split over several records?\n\n%2\n\nBooks with the same title and authors are treated as one; a different edition you read separately would be merged too. A backup of the statistics database is made first."),
+            #split_books, table.concat(lines, "\n")
+        ),
+        ok_text = _("Merge"),
+        ok_callback = function()
+            local ok, result = KOReaderStatistics.mergeSplitBooks(split_books)
+            if ok then
+                logger:info("Merged split reading statistics:", result, "record(s)")
+                self:toast(T(_("Merged %1 record(s)"), result))
+            else
+                logger:err("Could not merge reading statistics:", result)
+                self:toast(_("Could not merge reading statistics; nothing was changed"))
+            end
+        end,
+    }))
 end
 
 return DialogManager
