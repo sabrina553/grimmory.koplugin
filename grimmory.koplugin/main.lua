@@ -209,11 +209,24 @@ function Grimmory:init()
     logger:dbg("Initialized")
 end
 
+-- Stop scheduled and running syncs. A sync runs in a separate process, so
+-- without this it outlives KOReader and keeps going after a restart.
+function Grimmory:stopBackgroundWork()
+    self.scheduler:clear()
+    self.executor:clear()
+end
+
 function Grimmory:onExit()
     logger:dbg("Exiting")
 
-    self.scheduler:clear()
-    self.executor:clear()
+    self:stopBackgroundWork()
+end
+
+-- KOReader sends Restart, not Exit, when it restarts (devicelistener.lua).
+function Grimmory:onRestart()
+    logger:dbg("Restarting, stopping background sync")
+
+    self:stopBackgroundWork()
 end
 
 function Grimmory:onSuspend()
