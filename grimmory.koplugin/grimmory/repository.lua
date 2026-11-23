@@ -860,4 +860,41 @@ function GrimmoryLocalRepository:getBooksPendingSync(
     return book_ids
 end
 
+--- Whether the reading position changed in any event after `since`.
+--- Opening a book records its position even if no page is turned.
+---@param book_id integer
+---@param since integer
+---@return boolean ok
+---@return boolean moved
+function GrimmoryLocalRepository:hasPositionMovedSince(book_id, since)
+    local ok, moved = with_database(
+        self.database_path,
+        function(conn)
+            -- xpointer survives font and layout changes that renumber pages;
+            -- fixed-layout documents have no xpointer, so fall back to the page.
+            local stmt = conn:prepare([[
+                SELECT COUNT(DISTINCT COALESCE(book_event.xpointer, book_event.current_page))
+                FROM book_event
+                JOIN book_session ON book_session.id = book_event.session_id
+                WHERE
+                    book_session.book_id = ?
+                    AND book_event.created_at > ?
+            ]])
+
+            stmt:bind(book_id, since)
+            local row = stmt:step()
+            stmt:close()
+
+            return row ~= nil and tonumber(row[1]) > 1
+        end
+    )
+
+    if not ok then
+        logger:err("Failed to check reading position for book:", book_id, "-", moved)
+        return false, false
+    end
+
+    return true, moved
+end
+
 return GrimmoryLocalRepository
