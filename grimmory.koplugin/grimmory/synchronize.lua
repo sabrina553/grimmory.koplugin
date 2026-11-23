@@ -575,9 +575,19 @@ function GrimmorySynchronize:refreshOnMetadataChange(book_path, book, just_downl
         return false
     end
 
-    local stored_ok, stored_marker = self.repository:getBookSyncTimestamp(book_id, "metadata")
+    local stored_ok, stored_marker = self.repository:getBookSyncTimestamp(book_id, "metadata-v2")
     if not stored_ok or stored_marker == marker then
         return false
+    end
+
+    -- Books checked before the order fix have a marker that no longer
+    -- compares; they were already handled, so just record the new one.
+    if stored_marker == 0 then
+        local old_ok, old_marker = self.repository:getBookSyncTimestamp(book_id, "metadata")
+        if old_ok and old_marker ~= 0 then
+            self.repository:updateBookSyncTimestamp(book_id, "metadata-v2", marker)
+            return false
+        end
     end
 
     local format = METADATA_WRITABLE_FORMATS[(book_path:match("%.([^./]+)$") or ""):lower()]
@@ -604,7 +614,7 @@ function GrimmorySynchronize:refreshOnMetadataChange(book_path, book, just_downl
         end
     end
 
-    self.repository:updateBookSyncTimestamp(book_id, "metadata", marker)
+    self.repository:updateBookSyncTimestamp(book_id, "metadata-v2", marker)
     return changed
 end
 
