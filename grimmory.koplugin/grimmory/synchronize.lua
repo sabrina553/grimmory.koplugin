@@ -1,6 +1,7 @@
 local ReadCollection = require("readcollection")
 local md5 = require("ffi/MD5")
 local ffiutil = require("ffi/util")
+local sha2 = require("ffi/sha2")
 local util = require("util")
 local BookHash = require("grimmory/book_hash")
 
@@ -526,6 +527,191 @@ function GrimmorySynchronize:pullBookProgress(book_path)
     return unknown_book
 end
 
+-- Book details that end up in the file. Ratings, moods and tags change
+-- without an edit or never reach the file, so they would only cause
+-- needless downloads.
+---@param book Book
+---@return integer|nil marker A number that changes whenever those details do
+local function metadataMarker(book)
+    local metadata = book.metadata
+    if metadata == nil or metadata.title == nil then
+        return nil
+    end
+
+    -- The server keeps authors and genres in sets, so their order changes
+    -- between requests without anything being edited.
+    local function sortedList(list)
+        local copy = {}
+        for _, item in ipairs(list or {}) do
+            table.insert(copy, item)
+        end
+        table.sort(copy)
+        return table.concat(copy, "\n")
+    end
+
+    local fields = {
+        metadata.title or "",
+        metadata.subtitle or "",
+        sortedList(metadata.authors),
+        metadata.series_name or "",
+        tostring(metadata.series_number or ""),
+        tostring(metadata.series_total or ""),
+        metadata.publisher or "",
+        metadata.published_date or "",
+        metadata.language or "",
+        tostring(metadata.page_count or ""),
+        sortedList(metadata.categories),
+        metadata.isbn10 or "",
+        metadata.isbn13 or "",
+    }
+
+    -- 52 bits fit exactly in a Lua number; LuaJIT's tonumber(s, 16) stops at
+    -- 32 bits, so the hex is converted in two parts.
+    local digest = sha2.md5(table.concat(fields, "\31"))
+    return tonumber(digest:sub(1, 6), 16) * 2 ^ 28 + tonumber(digest:sub(7, 13), 16)
+end
+
+-- Case, spacing and punctuation differ between the server and the file
+-- without the details really differing.
+local function normaliseDetail(value)
+    return (tostring(value or ""):lower():gsub("[%p%s]", ""))
+end
+
+---@param book_path string
+---@param book Book
+---@return boolean|nil matches nil when the file's details can't be read
+function GrimmorySynchronize:fileMatchesServerDetails(book_path, book)
+    local props = self.doc_metadata:readFileProps(book_path)
+    if props == nil then
+        return nil
+    end
+
+    local server_authors = {}
+    for _, author in ipairs(book.metadata.authors or {}) do
+        table.insert(server_authors, normaliseDetail(author))
+    end
+    table.sort(server_authors)
+
+    local file_authors = {}
+    for author in tostring(props.authors or ""):gmatch("[^\n]+") do
+        table.insert(file_authors, normaliseDetail(author))
+    end
+    table.sort(file_authors)
+
+    return normaliseDetail(props.title) == normaliseDetail(book.metadata.title)
+        and table.concat(file_authors, ",") == table.concat(server_authors, ",")
+end
+
+-- Formats Grimmory can write metadata into, and whether KOReader reads that
+-- metadata back. Comics carry it in ComicInfo.xml, which KOReader ignores,
+-- so their file can't be compared, only refreshed when the server changes.
+-- MOBI, AZW3 and FB2 can't be written by the server at all.
+local METADATA_WRITABLE_FORMATS = {
+    epub = { file_comparable = true },
+    pdf = { file_comparable = true },
+    cbz = { file_comparable = false },
+    cbr = { file_comparable = false },
+    cb7 = { file_comparable = false },
+}
+
+-- A server can save an edit before writing it into the file (a locked field,
+-- or a delayed write). Such a book is re-downloaded again at most this often
+-- until its file catches up.
+local STALE_FILE_RECHECK_SECONDS = 7 * 24 * 60 * 60
+
+-- Re-download a book when its details change on the server. The first time a
+-- book is seen there is nothing to compare with, so its file is checked
+-- instead: that catches edits made before this was in place.
+---@param book_path string
+---@param book Book
+---@param just_downloaded boolean
+---@return boolean refreshed
+function GrimmorySynchronize:refreshOnMetadataChange(book_path, book, just_downloaded)
+    local marker = metadataMarker(book)
+    if marker == nil then
+        return false
+    end
+
+    local upsert_ok, book_id = self.repository:upsertBook(book_path, book.id)
+    if not upsert_ok or not book_id then
+        return false
+    end
+
+    local stored_ok, stored_marker = self.repository:getBookSyncTimestamp(book_id, "metadata-v2")
+    if not stored_ok then
+        return false
+    end
+
+    local format = METADATA_WRITABLE_FORMATS[(book_path:match("%.([^./]+)$") or ""):lower()]
+    local comparable = format ~= nil and format.file_comparable and not just_downloaded
+    local now = os.time()
+
+    local _, stale_since = self.repository:getBookSyncTimestamp(book_id, "metadata-stale")
+    stale_since = stale_since or 0
+
+    local refresh = false
+
+    if stored_marker == marker then
+        if not comparable then
+            return false
+        end
+
+        local _, file_checked = self.repository:getBookSyncTimestamp(book_id, "metadata-file-checked")
+        if stale_since ~= 0 then
+            refresh = now - stale_since >= STALE_FILE_RECHECK_SECONDS
+        elseif (file_checked or 0) == 0 then
+            -- Recorded before stale files were tracked: check the file once.
+            self.repository:updateBookSyncTimestamp(book_id, "metadata-file-checked", now)
+            refresh = self:fileMatchesServerDetails(book_path, book) == false
+        end
+
+        if not refresh then
+            return false
+        end
+        logger:info("Book file still behind its details on the server, checking again:", book_path)
+    else
+        -- Books checked before the order fix have a marker that no longer
+        -- compares; they were already handled, so just record the new one.
+        if stored_marker == 0 then
+            local old_ok, old_marker = self.repository:getBookSyncTimestamp(book_id, "metadata")
+            if old_ok and old_marker ~= 0 then
+                self.repository:updateBookSyncTimestamp(book_id, "metadata-v2", marker)
+                return false
+            end
+        end
+
+        if format and not just_downloaded then
+            if stored_marker == 0 then
+                refresh = comparable and self:fileMatchesServerDetails(book_path, book) == false
+            else
+                refresh = true
+            end
+        end
+
+        if refresh then
+            logger:info("Book details changed on the server:", book_path)
+        end
+    end
+
+    if refresh then
+        if not self:refreshChangedBook(book_path, book.id) then
+            -- Leave the old state so the next sync tries again
+            return false
+        end
+
+        if comparable and self:fileMatchesServerDetails(book_path, book) == false then
+            logger:warn("Downloaded file still has the old title or authors, the server has not written them into the file yet:", book_path)
+            self.repository:updateBookSyncTimestamp(book_id, "metadata-stale", now)
+        elseif stale_since ~= 0 then
+            self.repository:updateBookSyncTimestamp(book_id, "metadata-stale", 0)
+        end
+    end
+
+    self.repository:updateBookSyncTimestamp(book_id, "metadata-file-checked", now)
+    self.repository:updateBookSyncTimestamp(book_id, "metadata-v2", marker)
+    return refresh
+end
+
 ---@param book_path string
 ---@param grimmory_id number
 ---@return boolean refreshed
@@ -984,6 +1170,10 @@ function GrimmorySynchronize:pullBook(book)
             end
         else
             logger:dbg("No new reading on Grimmory, skipping progress pull:", book.id)
+        end
+
+        if self.settings:getDownloadRefreshChangedBooks() then
+            is_downloaded = self:refreshOnMetadataChange(download_path, book, is_downloaded) or is_downloaded
         end
     end
 
