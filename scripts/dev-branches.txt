@@ -34,3 +34,4 @@ feat/merge-split-statistics
 chore/explain-database-tools
 perf/hash-once-per-sync
 feat/light-sync-on-lock
+fix/refresh-on-metadata-change
