@@ -1,5 +1,5 @@
 local Event = require("ui/event")
-local util = require("util")
+local BookHash = require("grimmory/book_hash")
 local md5 = require("ffi/sha2").md5
 
 local GrimmoryLogger = require("grimmory/logger")
@@ -173,7 +173,7 @@ function ReadingProgressManager:getRemoteProgressForBook(book_path)
         return nil, nil, nil
     end
 
-    local partial_md5 = util.partialMD5(book_path)
+    local partial_md5 = BookHash.partialMD5(book_path)
     if partial_md5 == nil then
         return nil, nil, nil
     end
