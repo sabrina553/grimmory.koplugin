@@ -274,8 +274,9 @@ function Grimmory:onCloseDocument()
     self.reading_recorder:onSessionEnd()
 
     if self.settings:getSyncOnCloseDocument() then
-        -- Do not block the UI thread
-        UIManager:nextTick(function()
+        -- The library is rebuilt as the book closes; syncing at the same
+        -- time makes touches lag enough to be read as holds.
+        UIManager:scheduleIn(WAKE_SETTLE_SECONDS, function()
             self:onGrimmorySync(false)
         end)
     end
