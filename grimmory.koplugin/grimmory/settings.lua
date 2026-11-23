@@ -54,6 +54,7 @@ local DEFAULTS = {
     session_threshold_pages = 0,
     sync_on_close_document = false,
     sync_on_suspend = false,
+    sync_on_resume = false,
     sync_on_power_off = false,
     sync_enable_wifi = false,
     sync_periodically = false,
@@ -375,6 +376,19 @@ end
 
 function GrimmorySettings:toggleSyncOnSuspend()
     self.data.sync_on_suspend = not self:getSyncOnSuspend()
+    self:write()
+end
+
+function GrimmorySettings:getSyncOnResume()
+    if self.data.sync_on_resume == nil then
+        return DEFAULTS.sync_on_resume
+    end
+
+    return self.data.sync_on_resume
+end
+
+function GrimmorySettings:toggleSyncOnResume()
+    self.data.sync_on_resume = not self:getSyncOnResume()
     self:write()
 end
 

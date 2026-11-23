@@ -299,6 +299,13 @@ function Grimmory:onResume()
         UIManager:scheduleIn(WAKE_SETTLE_SECONDS, self.wake_work)
     end
 
+    if self:isLibrarySyncDueOnWake() then
+        -- After the open book's progress (above), so that comes first.
+        UIManager:scheduleIn(WAKE_SETTLE_SECONDS + 1, function()
+            self:liveInstance():onGrimmorySync(false)
+        end)
+    end
+
     self.reading_recorder:onSessionStart()
 
     self:scheduleInterruptedSyncRetry()
@@ -391,6 +398,19 @@ function Grimmory:scheduleInterruptedSyncRetry()
     UIManager:scheduleIn(INTERRUPTED_SYNC_RETRY_DELAY, try_retry)
 end
 
+-- Waking is often just to read on, so the library isn't synced on every wake.
+local WAKE_LIBRARY_SYNC_MIN_SECONDS = 15 * 60
+
+---@return boolean
+function Grimmory:isLibrarySyncDueOnWake()
+    if not self.settings:getSyncOnResume() then
+        return false
+    end
+
+    local last = self.last_library_sync_at or 0
+    return os.time() - last >= WAKE_LIBRARY_SYNC_MIN_SECONDS
+end
+
 function Grimmory:onPowerOff()
     logger:dbg("Device is powering off")
 
@@ -430,11 +450,13 @@ function Grimmory:onCloseDocument()
 
     self.reading_recorder:onSessionEnd()
 
-    if self.settings:getSyncOnCloseDocument() then
-        -- The library is rebuilt as the book closes; syncing at the same
-        -- time makes touches lag enough to be read as holds.
+    if self.settings:getSyncOnCloseDocument() and self.ui.document then
+        -- Closing ends a reading session: sync that book, not the library.
+        -- Waits because the library is rebuilt as the book closes; syncing
+        -- at the same time makes touches lag enough to be read as holds.
+        local book_path = self.ui.document.file
         UIManager:scheduleIn(WAKE_SETTLE_SECONDS, function()
-            self:liveInstance():onGrimmorySync(false)
+            self:liveInstance():onGrimmorySync(false, book_path)
         end)
     end
 end
@@ -741,6 +763,11 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book, check_every_b
     end
 
     local open_book_before = self:openBookFingerprint()
+
+    if book_path == nil then
+        -- Started, not finished: a failed sync shouldn't be retried on every wake.
+        self.last_library_sync_at = os.time()
+    end
 
     local function background_callback(run, terminate)
         if not self:isReadyToSync() then

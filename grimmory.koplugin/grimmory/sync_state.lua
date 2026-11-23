@@ -24,6 +24,7 @@ SyncState.SHARED_FIELDS = {
     offline_retry = true,
     offline_retry_count = true,
     wake_work = true,
+    last_library_sync_at = true,
 }
 
 -- Route the shared fields of `instance` to SyncState, everything else to
