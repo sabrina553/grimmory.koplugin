@@ -1,47 +1,11 @@
 local DocumentRegistry = require("document/documentregistry")
 
 local GrimmoryCFIResolver = require("grimmory/cfi_resolver")
+local TimeUtil = require("grimmory/time_util")
 
 
----@param value integer
----@return string
-local function to_annotation_datetime(value)
-    if value == nil then
-        return nil
-    end
-
-    local parsed = os.date("!*t", value)
-    return string.format(
-        "%04d-%02d-%02d %02d:%02d:%02dZ",
-        parsed.year,
-        parsed.month,
-        parsed.day,
-        parsed.hour,
-        parsed.min,
-        parsed.sec
-    )
-end
-
----@param value string
----@return integer timestamp
-local function from_annotation_datetime(value)
-    if value == nil then
-        return nil
-    end
-
-    local year, month, day, hour, min, sec = value:match(
-        "(%d+)-(%d+)-(%d+) (%d+):(%d+):(%d+)"
-    )
-
-    return os.time({
-        year = year,
-        month = month,
-        day = day,
-        hour = hour,
-        min = min,
-        sec = sec
-    })
-end
+local to_annotation_datetime = TimeUtil.toKOReaderDatetime
+local from_annotation_datetime = TimeUtil.fromKOReaderDatetime
 
 ---@param document_path string
 ---@param callback (fun(resolver: GrimmoryCFIResolver): nil)
