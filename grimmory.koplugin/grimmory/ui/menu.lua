@@ -126,8 +126,11 @@ function GrimmoryMenu:getAutomaticSyncOptionsMenu()
                 local frequency = self.settings:getSyncFrequency()
                 return T(_("Frequency: %1 minutes"), frequency)
             end,
-            callback = function()
-                self.dialog_manager:showSyncFrequencySettings()
+            keep_menu_open = true,
+            callback = function(touchmenu_instance)
+                self.dialog_manager:showSyncFrequencySettings(function()
+                    touchmenu_instance:updateItems()
+                end)
             end,
             separator = true,
         },
@@ -159,8 +162,11 @@ function GrimmoryMenu:getSyncOptionsMenu()
         },
         {
             text = _("Reading Session Thresholds"),
-            callback = function()
-                self.dialog_manager:showSessionThresholdSettings()
+            keep_menu_open = true,
+            callback = function(touchmenu_instance)
+                self.dialog_manager:showSessionThresholdSettings(function()
+                    touchmenu_instance:updateItems()
+                end)
             end,
             separator = true,
         },
@@ -216,8 +222,11 @@ function GrimmoryMenu:getDownloadOptionsMenu()
     return {
         {
             text = _("Set Download Directory"),
-            callback = function()
-                self.dialog_manager:showDownloadDirectorySettings()
+            keep_menu_open = true,
+            callback = function(touchmenu_instance)
+                self.dialog_manager:showDownloadDirectorySettings(function()
+                    touchmenu_instance:updateItems()
+                end)
             end,
         },
         {
@@ -246,8 +255,11 @@ function GrimmoryMenu:getDownloadOptionsMenu()
 
                 return true
             end,
-            callback = function()
-                self.dialog_manager:showTargetShelvesSettings()
+            keep_menu_open = true,
+            callback = function(touchmenu_instance)
+                self.dialog_manager:showTargetShelvesSettings(function()
+                    touchmenu_instance:updateItems()
+                end)
             end,
             separator = true,
         },
@@ -351,8 +363,11 @@ function GrimmoryMenu:getSettingsMenu()
     return {
         {
             text = _("Connection Settings"),
-            callback = function()
-                self.dialog_manager:showConnectionSettings()
+            keep_menu_open = true,
+            callback = function(touchmenu_instance)
+                self.dialog_manager:showConnectionSettings(function()
+                    touchmenu_instance:updateItems()
+                end)
             end,
         },
         {
