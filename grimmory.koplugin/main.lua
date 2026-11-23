@@ -201,7 +201,9 @@ function Grimmory:onSuspend()
     self.reading_recorder:onSessionEnd()
 
     if self.settings:getSyncOnSuspend() then
-       self:onGrimmorySync(false)
+        -- Locking ends a reading session: send the open book's progress and
+        -- session, not a pass over the whole library.
+        self:onGrimmorySyncOpenBook(false)
     end
 end
 

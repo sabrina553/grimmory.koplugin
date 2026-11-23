@@ -88,6 +88,7 @@ function GrimmoryMenu:getAutomaticSyncOptionsMenu()
         },
         {
             text = _("On Suspend"),
+            help_text = _("Syncs the open book's progress, reading session and annotations when the reader locks. The whole library is synced by the other triggers."),
             checked_func = function()
                 return self.settings:getSyncOnSuspend()
             end,
