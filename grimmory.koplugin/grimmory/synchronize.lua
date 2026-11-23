@@ -481,10 +481,21 @@ local function metadataMarker(book)
         return nil
     end
 
+    -- The server keeps authors and genres in sets, so their order changes
+    -- between requests without anything being edited.
+    local function sortedList(list)
+        local copy = {}
+        for _, item in ipairs(list or {}) do
+            table.insert(copy, item)
+        end
+        table.sort(copy)
+        return table.concat(copy, "\n")
+    end
+
     local fields = {
         metadata.title or "",
         metadata.subtitle or "",
-        table.concat(metadata.authors or {}, "\n"),
+        sortedList(metadata.authors),
         metadata.series_name or "",
         tostring(metadata.series_number or ""),
         tostring(metadata.series_total or ""),
@@ -492,7 +503,7 @@ local function metadataMarker(book)
         metadata.published_date or "",
         metadata.language or "",
         tostring(metadata.page_count or ""),
-        table.concat(metadata.categories or {}, "\n"),
+        sortedList(metadata.categories),
         metadata.isbn10 or "",
         metadata.isbn13 or "",
     }
