@@ -62,7 +62,6 @@ local DEFAULTS = {
     sync_frequency = 120,
     sync_shelves = true,
     download_remove_books = false,
-    download_refresh_changed_books = false,
     sync_target_shelves = {},
     sync_download_directory = "grimmory/",
     sync_reading_sessions = true,
@@ -234,17 +233,11 @@ function GrimmorySettings:toggleDownloadRemoveBooks()
     self:write()
 end
 
+-- Always on: a book changed on the server is downloaded again, keeping its
+-- reading position, highlights and statistics. Upstream will likely want a
+-- setting back (defaulting to on); see the fork notes.
 function GrimmorySettings:getDownloadRefreshChangedBooks()
-    if self.data.download_refresh_changed_books == nil then
-        return DEFAULTS.download_refresh_changed_books
-    end
-
-    return self.data.download_refresh_changed_books
-end
-
-function GrimmorySettings:toggleDownloadRefreshChangedBooks()
-    self.data.download_refresh_changed_books = not self:getDownloadRefreshChangedBooks()
-    self:write()
+    return true
 end
 
 function GrimmorySettings:getDownloadDirectory()
