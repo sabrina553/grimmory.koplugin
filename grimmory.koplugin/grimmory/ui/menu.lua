@@ -5,6 +5,7 @@ local Device = require("device")
 local Event = require("ui/event")
 local ConfirmBox = require("ui/widget/confirmbox")
 local UIManager = require("ui/uimanager")
+local util = require("util")
 
 local PluginMetadata = require("grimmory/plugin_metadata")
 local GrimmoryLogger = require("grimmory/logger")
@@ -274,6 +275,76 @@ function GrimmoryMenu:getDownloadOptionsMenu()
     }
 end
 
+-- Sent sessions older than this can be pruned from the local database.
+local PRUNE_AFTER_DAYS = 90
+
+function GrimmoryMenu:getDatabaseMenu()
+    local function is_idle()
+        return self.interrupt_sync == nil
+    end
+
+    return {
+        {
+            text_func = function()
+                local size = self.repository:getDatabaseSize()
+                return T(_("Database Size: %1"), size and util.getFriendlySize(size) or _("unknown"))
+            end,
+            keep_menu_open = true,
+            callback = function() end,
+            separator = true,
+        },
+        {
+            text = _("Prune Old Data"),
+            help_text = T(_("Remove reading sessions already sent to Grimmory that are older than %1 days, and records of books no longer on this device with nothing left to send. A backup copy of the database is made first."), PRUNE_AFTER_DAYS),
+            enabled_func = is_idle,
+            keep_menu_open = true,
+            callback = function(touchmenu_instance)
+                UIManager:show(ConfirmBox:new({
+                    text = T(_("Remove sessions already sent to Grimmory that are older than %1 days?\n\nNothing still waiting to be sent is removed."), PRUNE_AFTER_DAYS),
+                    ok_text = _("Prune"),
+                    ok_callback = function()
+                        local cutoff = os.time() - PRUNE_AFTER_DAYS * 24 * 60 * 60
+                        local ok, result = self.repository:pruneOldData(cutoff, util.fileExists)
+                        if ok then
+                            self.dialog_manager:toast(T(
+                                _("Pruned %1 event(s), %2 session(s) and %3 book record(s)"),
+                                result.events, result.sessions, result.books
+                            ))
+                        else
+                            self.dialog_manager:toast(_("Could not prune the database; nothing was changed"))
+                        end
+                        if touchmenu_instance then
+                            touchmenu_instance:updateItems()
+                        end
+                    end,
+                }))
+            end,
+        },
+        {
+            text = _("Clear Database"),
+            help_text = _("Remove all of the plugin's local data. Books are recorded again on the next sync. A backup copy of the database is made first."),
+            enabled_func = is_idle,
+            keep_menu_open = true,
+            callback = function(touchmenu_instance)
+                UIManager:show(ConfirmBox:new({
+                    text = _("Remove all of Grimmory's local data?\n\nReading sessions and progress not yet sent to Grimmory will be lost. Your books and KOReader's own data are not affected."),
+                    ok_text = _("Clear"),
+                    ok_callback = function()
+                        if self.repository:clearAllData() then
+                            self.dialog_manager:toast(_("Grimmory database cleared"))
+                        else
+                            self.dialog_manager:toast(_("Could not clear the database; nothing was changed"))
+                        end
+                        if touchmenu_instance then
+                            touchmenu_instance:updateItems()
+                        end
+                    end,
+                }))
+            end,
+        },
+    }
+end
+
 function GrimmoryMenu:getTopMenu()
     local menu = {
         {
@@ -304,6 +375,11 @@ function GrimmoryMenu:getTopMenu()
         {
             text = _("Download Configuration"),
             sub_item_table = self:getDownloadOptionsMenu(),
+            separator = true,
+        },
+        {
+            text = _("Database"),
+            sub_item_table = self:getDatabaseMenu(),
             separator = true,
         },
         {
