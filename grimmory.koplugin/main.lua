@@ -243,8 +243,8 @@ end
 local INTERRUPTED_SYNC_RETRY_DELAY = 5
 -- If another sync is running when the retry is due, wait for it this long
 -- between checks, up to this many times, rather than dropping the retry.
-local INTERRUPTED_SYNC_BUSY_DELAY = 30
-local INTERRUPTED_SYNC_BUSY_ATTEMPTS = 10
+local INTERRUPTED_SYNC_BUSY_DELAY = 5
+local INTERRUPTED_SYNC_BUSY_ATTEMPTS = 120
 -- Locking again during a retry interrupts it too; after this many in a row
 -- the failure is reported instead.
 local MAX_SLEEP_RETRIES = 3
@@ -261,10 +261,21 @@ function Grimmory:scheduleInterruptedSyncRetry()
 
     local attempts = 0
 
+    -- KOReader's standby freezes scheduled tasks while the reader sits idle,
+    -- which held a waiting retry back for minutes; keep it awake until then.
+    local holding_standby = false
+    local function releaseStandby()
+        if holding_standby then
+            holding_standby = false
+            UIManager:allowStandby()
+        end
+    end
+
     local function try_retry()
         if self.is_suspended then
             -- Slept again before the retry fired; keep it for the next wake
             self.interrupted_sync = pending
+            releaseStandby()
             return
         end
 
@@ -275,13 +286,19 @@ function Grimmory:scheduleInterruptedSyncRetry()
             attempts = attempts + 1
             if attempts > INTERRUPTED_SYNC_BUSY_ATTEMPTS then
                 logger:info("Giving up retry of interrupted sync, another sync kept running")
+                releaseStandby()
                 return
             end
 
-            logger:info("Another sync is running, retrying the interrupted one after it")
+            if attempts == 1 then
+                logger:info("Another sync is running, retrying the interrupted one after it")
+            end
+
             UIManager:scheduleIn(INTERRUPTED_SYNC_BUSY_DELAY, try_retry)
             return
         end
+
+        releaseStandby()
 
         if not self:isReadyToSync() then
             logger:info("Skipping retry of interrupted sync, not ready to sync")
@@ -303,6 +320,8 @@ function Grimmory:scheduleInterruptedSyncRetry()
         self:onGrimmorySync(false, pending.book_path, pending.refresh_book, pending.check_every_book)
     end
 
+    holding_standby = true
+    UIManager:preventStandby()
     UIManager:scheduleIn(INTERRUPTED_SYNC_RETRY_DELAY, try_retry)
 end
 
