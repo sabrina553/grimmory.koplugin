@@ -675,6 +675,8 @@ end
 ---| "sessions"
 ---| "metadata"
 ---| "metadata-v2"
+---| "metadata-stale"
+---| "metadata-file-checked"
 
 ---@param book_id number
 ---@param sync_type RepositorySyncType

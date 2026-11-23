@@ -557,6 +557,11 @@ local METADATA_WRITABLE_FORMATS = {
     cb7 = { file_comparable = false },
 }
 
+-- A server can save an edit before writing it into the file (a locked field,
+-- or a delayed write). Such a book is re-downloaded again at most this often
+-- until its file catches up.
+local STALE_FILE_RECHECK_SECONDS = 7 * 24 * 60 * 60
+
 -- Re-download a book when its details change on the server. The first time a
 -- book is seen there is nothing to compare with, so its file is checked
 -- instead: that catches edits made before this was in place.
@@ -576,46 +581,78 @@ function GrimmorySynchronize:refreshOnMetadataChange(book_path, book, just_downl
     end
 
     local stored_ok, stored_marker = self.repository:getBookSyncTimestamp(book_id, "metadata-v2")
-    if not stored_ok or stored_marker == marker then
+    if not stored_ok then
         return false
     end
 
-    -- Books checked before the order fix have a marker that no longer
-    -- compares; they were already handled, so just record the new one.
-    if stored_marker == 0 then
-        local old_ok, old_marker = self.repository:getBookSyncTimestamp(book_id, "metadata")
-        if old_ok and old_marker ~= 0 then
-            self.repository:updateBookSyncTimestamp(book_id, "metadata-v2", marker)
-            return false
-        end
-    end
-
     local format = METADATA_WRITABLE_FORMATS[(book_path:match("%.([^./]+)$") or ""):lower()]
+    local comparable = format ~= nil and format.file_comparable and not just_downloaded
+    local now = os.time()
 
-    local changed = false
-    if format and not just_downloaded then
-        if stored_marker == 0 then
-            changed = format.file_comparable and self:fileMatchesServerDetails(book_path, book) == false
-        else
-            changed = true
-        end
-    end
+    local _, stale_since = self.repository:getBookSyncTimestamp(book_id, "metadata-stale")
+    stale_since = stale_since or 0
 
-    if changed then
-        logger:info("Book details changed on the server:", book_path)
+    local refresh = false
 
-        if not self:refreshChangedBook(book_path, book.id) then
-            -- Leave the old marker so the next sync tries again
+    if stored_marker == marker then
+        if not comparable then
             return false
         end
 
-        if format.file_comparable and self:fileMatchesServerDetails(book_path, book) == false then
-            logger:warn("Downloaded file still has the old title or authors, the server has not written them into the file:", book_path)
+        local _, file_checked = self.repository:getBookSyncTimestamp(book_id, "metadata-file-checked")
+        if stale_since ~= 0 then
+            refresh = now - stale_since >= STALE_FILE_RECHECK_SECONDS
+        elseif (file_checked or 0) == 0 then
+            -- Recorded before stale files were tracked: check the file once.
+            self.repository:updateBookSyncTimestamp(book_id, "metadata-file-checked", now)
+            refresh = self:fileMatchesServerDetails(book_path, book) == false
+        end
+
+        if not refresh then
+            return false
+        end
+        logger:info("Book file still behind its details on the server, checking again:", book_path)
+    else
+        -- Books checked before the order fix have a marker that no longer
+        -- compares; they were already handled, so just record the new one.
+        if stored_marker == 0 then
+            local old_ok, old_marker = self.repository:getBookSyncTimestamp(book_id, "metadata")
+            if old_ok and old_marker ~= 0 then
+                self.repository:updateBookSyncTimestamp(book_id, "metadata-v2", marker)
+                return false
+            end
+        end
+
+        if format and not just_downloaded then
+            if stored_marker == 0 then
+                refresh = comparable and self:fileMatchesServerDetails(book_path, book) == false
+            else
+                refresh = true
+            end
+        end
+
+        if refresh then
+            logger:info("Book details changed on the server:", book_path)
         end
     end
 
+    if refresh then
+        if not self:refreshChangedBook(book_path, book.id) then
+            -- Leave the old state so the next sync tries again
+            return false
+        end
+
+        if comparable and self:fileMatchesServerDetails(book_path, book) == false then
+            logger:warn("Downloaded file still has the old title or authors, the server has not written them into the file yet:", book_path)
+            self.repository:updateBookSyncTimestamp(book_id, "metadata-stale", now)
+        elseif stale_since ~= 0 then
+            self.repository:updateBookSyncTimestamp(book_id, "metadata-stale", 0)
+        end
+    end
+
+    self.repository:updateBookSyncTimestamp(book_id, "metadata-file-checked", now)
     self.repository:updateBookSyncTimestamp(book_id, "metadata-v2", marker)
-    return changed
+    return refresh
 end
 
 ---@param book_path string
