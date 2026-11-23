@@ -534,6 +534,18 @@ function GrimmorySynchronize:fileMatchesServerDetails(book_path, book)
         and table.concat(file_authors, ",") == table.concat(server_authors, ",")
 end
 
+-- Formats Grimmory can write metadata into, and whether KOReader reads that
+-- metadata back. Comics carry it in ComicInfo.xml, which KOReader ignores,
+-- so their file can't be compared, only refreshed when the server changes.
+-- MOBI, AZW3 and FB2 can't be written by the server at all.
+local METADATA_WRITABLE_FORMATS = {
+    epub = { file_comparable = true },
+    pdf = { file_comparable = true },
+    cbz = { file_comparable = false },
+    cbr = { file_comparable = false },
+    cb7 = { file_comparable = false },
+}
+
 -- Re-download a book when its details change on the server. The first time a
 -- book is seen there is nothing to compare with, so its file is checked
 -- instead: that catches edits made before this was in place.
@@ -557,10 +569,12 @@ function GrimmorySynchronize:refreshOnMetadataChange(book_path, book, just_downl
         return false
     end
 
+    local format = METADATA_WRITABLE_FORMATS[(book_path:match("%.([^./]+)$") or ""):lower()]
+
     local changed = false
-    if not just_downloaded then
+    if format and not just_downloaded then
         if stored_marker == 0 then
-            changed = self:fileMatchesServerDetails(book_path, book) == false
+            changed = format.file_comparable and self:fileMatchesServerDetails(book_path, book) == false
         else
             changed = true
         end
@@ -574,7 +588,7 @@ function GrimmorySynchronize:refreshOnMetadataChange(book_path, book, just_downl
             return false
         end
 
-        if self:fileMatchesServerDetails(book_path, book) == false then
+        if format.file_comparable and self:fileMatchesServerDetails(book_path, book) == false then
             logger:warn("Downloaded file still has the old title or authors, the server has not written them into the file:", book_path)
         end
     end
