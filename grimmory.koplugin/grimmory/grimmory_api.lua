@@ -155,6 +155,10 @@ local function parse_book(book)
         koreader_percentage = from_json_number((book["koreaderProgress"] or {})["percentage"]),
         file_size_kb = from_json_number((book["primaryFile"] or {})["fileSizeKb"]),
         cover_updated_on = from_json_iso8601(book_metadata["coverUpdatedOn"]),
+        read_status = from_json_string(book["readStatus"]),
+        -- Kept as text: only the day matters, and converting through
+        -- os.time would shift it by the reader's time zone.
+        date_finished = from_json_string(book["dateFinished"]),
         shelves = shelves,
         metadata = metadata,
         primary_file = primary_file
@@ -574,6 +578,42 @@ function GrimmoryAPI:downloadBook(book_id, destination_path)
     end
 
     return true, destination_path
+end
+
+-- One book per request: the server only lets admins change several at once.
+-- It stamps the finish date with the current time when the status is READ.
+---@param book_id number
+---@param status string Grimmory read status, such as "READ" or "PAUSED"
+function GrimmoryAPI:setReadStatus(book_id, status)
+    local ok, code, body = self:request(
+        "POST",
+        "/api/v1/books/status",
+        { bookIds = { book_id }, status = status }
+    )
+
+    if not ok then
+        logger:err("Could not set read status", book_id, code, body)
+    end
+
+    return ok
+end
+
+-- Sending only the date leaves the status and progress as they are.
+---@param book_id number
+---@param date string Day the book was finished, YYYY-MM-DD
+function GrimmoryAPI:setDateFinished(book_id, date)
+    local ok, code, body = self:request(
+        "POST",
+        "/api/v1/books/progress",
+        -- Midday UTC keeps the same day in any time zone.
+        { bookId = book_id, dateFinished = date .. "T12:00:00Z" }
+    )
+
+    if not ok then
+        logger:err("Could not set date finished", book_id, code, body)
+    end
+
+    return ok
 end
 
 function GrimmoryAPI:getShelves()
