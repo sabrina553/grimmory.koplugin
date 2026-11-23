@@ -138,7 +138,33 @@ function GrimmoryLocalRepository:runMigrations()
     end
 end
 
+function GrimmoryLocalRepository:hasDuplicateBookRows()
+    local ok, found = with_database(
+        self.database_path,
+        function(conn)
+            local stmt = conn:prepare([[
+                SELECT 1 FROM book GROUP BY book_path HAVING COUNT(*) > 1 LIMIT 1
+            ]])
+            local row = stmt:step()
+            stmt:close()
+            return row ~= nil
+        end
+    )
+
+    return ok and found
+end
+
 function GrimmoryLocalRepository:init()
+    -- The merge migration deletes rows, so keep a copy of the database the
+    -- first time it has anything to merge.
+    if util.fileExists(self.database_path) and self:hasDuplicateBookRows() then
+        local backup_path = self.database_path .. ".before-merge"
+        if not util.fileExists(backup_path) then
+            logger:info("Backing up database before merging book rows:", backup_path)
+            ffiUtil.copyFile(self.database_path, backup_path)
+        end
+    end
+
     logger:dbg("Running migrations")
     self:runMigrations()
 end
@@ -157,6 +183,23 @@ function GrimmoryLocalRepository:upsertBook(book_path, grimmory_id)
     local ok, book = with_database(
         self.database_path,
         function(conn)
+            -- A changed file keeps its row (and so its reading history),
+            -- taking the new hash, rather than gaining a second row.
+            local rehash_stmt = conn:prepare([[
+                UPDATE book
+                SET
+                    partial_md5 = ?
+                WHERE
+                    id = (SELECT MAX(id) FROM book WHERE book_path = ?)
+                    AND NOT EXISTS (
+                        SELECT 1 FROM book WHERE book_path = ? AND partial_md5 = ?
+                    )
+            ]])
+
+            rehash_stmt:bind(partial_md5, absolute_book_path, absolute_book_path, partial_md5)
+            rehash_stmt:step()
+            rehash_stmt:close()
+
             -- Remember that `OR IGNORE` will ignore almost all
             -- data type or constraint failures.
             local insert_stmt = conn:prepare([[
