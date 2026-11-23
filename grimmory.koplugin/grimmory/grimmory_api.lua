@@ -267,7 +267,10 @@ function GrimmoryAPI:rawRequest(method, uri, data, headers, sink)
     end
 
     if type(code) ~= "number" then
+        -- No HTTP status means the request never reached the server
+        -- (DNS, TLS or socket failure), so the connection itself is gone.
         logger:err("Non-numeric response code received:", tostring(code))
+        self.connection_lost = true
         return false, 0, tostring(code)
     end
 
@@ -382,6 +385,15 @@ end
 
 ---@return boolean ok
 ---@return string | nil currnet_version
+---@return boolean lost true when a request failed without reaching the server
+function GrimmoryAPI:hasLostConnection()
+    return self.connection_lost == true
+end
+
+function GrimmoryAPI:resetConnectionState()
+    self.connection_lost = false
+end
+
 function GrimmoryAPI:getServerVersion()
     local ok, _, body = self:request(
         "GET",
