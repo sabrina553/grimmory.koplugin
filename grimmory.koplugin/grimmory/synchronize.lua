@@ -3,6 +3,7 @@ local md5 = require("ffi/MD5")
 local util = require("util")
 
 local GrimmoryLogger = require("grimmory/logger")
+local KOReaderStatistics = require("grimmory/koreader_statistics")
 
 local logger = GrimmoryLogger:new()
 
@@ -479,10 +480,69 @@ function GrimmorySynchronize:pullBookProgress(book_path)
         return
     end
 
-    local _, _, progress = self.reading_progress_manager:getRemoteProgressForBook(book_path)
+    local _, _, progress, unknown_book = self.reading_progress_manager:getRemoteProgressForBook(book_path)
 
     if progress then
         self.reading_progress_manager:applyProgress(progress)
+    end
+
+    return unknown_book
+end
+
+---@param book_path string
+---@param grimmory_id number
+---@return boolean refreshed
+function GrimmorySynchronize:refreshChangedBook(book_path, grimmory_id)
+    -- Replacing the file under an open document would corrupt the reader's
+    -- state; leave it for a later sync.
+    if self.open_book_path == book_path then
+        logger:info("Book changed on the server but is open, refreshing later:", book_path)
+        return false
+    end
+
+    local upsert_ok, book_id = self.repository:upsertBook(book_path, grimmory_id)
+    if not upsert_ok or not book_id then
+        return false
+    end
+
+    logger:info("Book changed on the server, downloading again:", book_path)
+
+    local call_ok, refresh_ok, refresh_message = pcall(self.refreshBook, self, book_path, book_id, grimmory_id)
+    if not call_ok or not refresh_ok then
+        logger:err("Could not refresh changed book:", book_path, refresh_ok, refresh_message)
+        return false
+    end
+
+    self:pullBookProgress(book_path)
+    return true
+end
+
+-- Point KOReader's own records at the new file hash, so reading statistics
+-- and KOReader progress sync continue after the file is replaced.
+---@param book_path string
+---@param old_md5 string
+---@param new_md5 string
+function GrimmorySynchronize:moveKOReaderBookHash(book_path, old_md5, new_md5)
+    local settings = self.doc_metadata:getDocSettings(book_path)
+    local sidecar_md5 = settings:readSetting("partial_md5_checksum")
+
+    if sidecar_md5 then
+        -- Statistics are keyed by the sidecar's hash, which can predate ours.
+        old_md5 = sidecar_md5
+        settings:saveSetting("partial_md5_checksum", new_md5)
+        settings:flush()
+    end
+
+    local stats_ok, stats_result = KOReaderStatistics.moveBookHash(old_md5, new_md5)
+    if stats_ok then
+        logger:info("Moved KOReader statistics to new hash:", book_path, stats_result, "book(s)")
+    else
+        logger:err("Could not move KOReader statistics to new hash:", book_path, stats_result)
+    end
+
+    local cache_ok, BookInfoManager = pcall(require, "bookinfomanager")
+    if cache_ok and BookInfoManager then
+        pcall(BookInfoManager.deleteBookInfo, BookInfoManager, book_path)
     end
 end
 
@@ -697,6 +757,13 @@ function GrimmorySynchronize:refreshBook(book_path, book_id, grimmory_id)
         end
     end)
 
+    if finalize_ok and temp_partial_md5 ~= book_partial_md5 then
+        local move_ok, move_message = pcall(self.moveKOReaderBookHash, self, book_path, book_partial_md5, temp_partial_md5)
+        if not move_ok then
+            logger:err("Could not update KOReader records for refreshed book:", book_path, move_message)
+        end
+    end
+
     if not finalize_ok then
         if util.fileExists(backup_path) then
             logger:dbg("Rolling back: Renaming", backup_path, "to", book_path)
@@ -762,7 +829,11 @@ function GrimmorySynchronize:pullBook(book)
         -- After we're done, if the book exists we should attach it
         -- to associated shelves and pull the book progress.
         self:associateWithShelves(download_path, book.shelves or {})
-        self:pullBookProgress(download_path)
+        local unknown_book = self:pullBookProgress(download_path)
+
+        if unknown_book and not is_downloaded and self.settings:getDownloadRefreshChangedBooks() then
+            is_downloaded = self:refreshChangedBook(download_path, book.id)
+        end
     end
 
     return download_path, is_downloaded

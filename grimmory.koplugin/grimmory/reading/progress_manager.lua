@@ -164,6 +164,7 @@ end
 ---@return string | nil source_name
 ---@return string | nil source_id
 ---@return ReadingSessionProgress | nil progress
+---@return boolean | nil unknown_book true when Grimmory has no book with this file's hash
 function ReadingProgressManager:getRemoteProgressForBook(book_path)
     local koreader_auth_id, koreader_auth_secret = self:getCredentials()
 
@@ -177,7 +178,7 @@ function ReadingProgressManager:getRemoteProgressForBook(book_path)
         return nil, nil, nil
     end
 
-    local ok, progress = self.api:getReadingProgress(
+    local ok, progress, unknown_book = self.api:getReadingProgress(
         koreader_auth_id,
         koreader_auth_secret,
         partial_md5
@@ -193,7 +194,7 @@ function ReadingProgressManager:getRemoteProgressForBook(book_path)
 
     if progress == nil then
         -- There's just no progress
-        return nil, nil, nil
+        return nil, nil, nil, unknown_book
     end
 
     if type(progress.percentage) ~= "number" then
