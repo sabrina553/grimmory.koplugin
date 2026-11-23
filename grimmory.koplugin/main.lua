@@ -214,6 +214,12 @@ function Grimmory:init()
 
     self:onDispatcherRegisterActions()
 
+    -- Instances are made for each opened book too; only check once per run.
+    if not self.library_start_checked then
+        self.library_start_checked = true
+        self:scheduleLibrarySyncIfDue()
+    end
+
     logger:dbg("Initialized")
 end
 
@@ -273,6 +279,7 @@ function Grimmory:onSuspend()
     end
 
     self:cancelWakeWork()
+    self:cancelLibraryWakeWork()
 
     self.reading_recorder:onSessionEnd()
 
@@ -299,12 +306,7 @@ function Grimmory:onResume()
         UIManager:scheduleIn(WAKE_SETTLE_SECONDS, self.wake_work)
     end
 
-    if self:isLibrarySyncDueOnWake() then
-        -- After the open book's progress (above), so that comes first.
-        UIManager:scheduleIn(WAKE_SETTLE_SECONDS + 1, function()
-            self:liveInstance():onGrimmorySync(false)
-        end)
-    end
+    self:scheduleLibrarySyncIfDue()
 
     self.reading_recorder:onSessionStart()
 
@@ -398,17 +400,45 @@ function Grimmory:scheduleInterruptedSyncRetry()
     UIManager:scheduleIn(INTERRUPTED_SYNC_RETRY_DELAY, try_retry)
 end
 
--- Waking is often just to read on, so the library isn't synced on every wake.
-local WAKE_LIBRARY_SYNC_MIN_SECONDS = 15 * 60
+-- A glance at the reader shouldn't start the big sync, so it waits until
+-- the reader has stayed awake this long.
+local LIBRARY_SYNC_WAKE_DELAY_SECONDS = 5 * 60
 
 ---@return boolean
-function Grimmory:isLibrarySyncDueOnWake()
+function Grimmory:isLibrarySyncDue()
     if not self.settings:getSyncOnResume() then
         return false
     end
 
-    local last = self.last_library_sync_at or 0
-    return os.time() - last >= WAKE_LIBRARY_SYNC_MIN_SECONDS
+    local interval = self.settings:getLibrarySyncIntervalHours() * 60 * 60
+    return os.time() - self.settings:getLastLibrarySync() >= interval
+end
+
+function Grimmory:cancelLibraryWakeWork()
+    if self.library_wake_work then
+        UIManager:unschedule(self.library_wake_work)
+        self.library_wake_work = nil
+    end
+end
+
+-- Called on wake and when KOReader starts. Checked again when the delay
+-- ends, as a manual sync may have run in between.
+function Grimmory:scheduleLibrarySyncIfDue()
+    self:cancelLibraryWakeWork()
+
+    if not self:isLibrarySyncDue() then
+        return
+    end
+
+    self.library_wake_work = function()
+        self.library_wake_work = nil
+        local instance = self:liveInstance()
+        if instance:isLibrarySyncDue() then
+            logger:info("Library sync due, starting it")
+            instance:onGrimmorySync(false)
+        end
+    end
+    UIManager:scheduleIn(LIBRARY_SYNC_WAKE_DELAY_SECONDS, self.library_wake_work)
 end
 
 function Grimmory:onPowerOff()
@@ -420,7 +450,8 @@ function Grimmory:onPowerOff()
     self.reading_recorder:onSessionEnd()
 
     if self.settings:getSyncOnPowerOff() then
-       self:onGrimmorySync(false)
+        -- Too little time for the library; send what was just read.
+        self:onGrimmorySyncOpenBook(false)
     end
 end
 
@@ -764,10 +795,6 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book, check_every_b
 
     local open_book_before = self:openBookFingerprint()
 
-    if book_path == nil then
-        -- Started, not finished: a failed sync shouldn't be retried on every wake.
-        self.last_library_sync_at = os.time()
-    end
 
     local function background_callback(run, terminate)
         if not self:isReadyToSync() then
@@ -1025,6 +1052,13 @@ function Grimmory:onGrimmorySync(verbose, book_path, refresh_book, check_every_b
         end
 
         self:refreshUI(open_book_before)
+
+        -- Only a library sync with every step done resets the clock; a
+        -- failed one is tried again on a later wake. One bad book is not a
+        -- failed step, so it doesn't hold the clock back.
+        if book_path == nil and #sync_report.failed_steps == 0 then
+            self.settings:setLastLibrarySync(os.time())
+        end
 
         if sync_report:hasProblems() then
             logger:warn(

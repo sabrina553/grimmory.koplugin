@@ -241,6 +241,48 @@ function DialogManager:showSyncFrequencySettings(on_saved)
 end
 
 ---@param on_saved function|nil Called after a new value is saved, e.g. to refresh the menu
+function DialogManager:showLibrarySyncIntervalSettings(on_saved)
+    local dialog
+    dialog = MultiInputDialog:new({
+        title = _("Library Sync Interval"),
+        fields = {
+            {
+                text = self.settings:getLibrarySyncIntervalHours(),
+                description = _("Hours between library syncs (24 = daily, 168 = weekly)"),
+                input_type = "number"
+            },
+        },
+        buttons = {
+            {
+                {
+                    text = _("Cancel"),
+                    id = "close",
+                    callback = function()
+                        UIManager:close(dialog)
+                    end,
+                },
+                {
+                    text = _("Apply"),
+                    callback = function()
+                        local fields = dialog:getFields()
+                        local hours = tonumber(fields[1])
+
+                        if hours then
+                            self.settings:setLibrarySyncIntervalHours(math.max(1, hours))
+                        end
+
+                        UIManager:close(dialog)
+                        if on_saved then on_saved() end
+                    end,
+                },
+            },
+        },
+    })
+
+    UIManager:show(dialog)
+end
+
+---@param on_saved function|nil Called after a new value is saved, e.g. to refresh the menu
 function DialogManager:showSessionThresholdSettings(on_saved)
     local dialog
     dialog = MultiInputDialog:new({

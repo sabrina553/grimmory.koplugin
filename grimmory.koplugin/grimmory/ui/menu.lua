@@ -115,6 +115,17 @@ function GrimmoryMenu:getAutomaticSyncOptionsMenu()
                     end,
                     keep_menu_open = true,
                 },
+                {
+                    text = _("When Powering Off"),
+                    checked_func = function()
+                        return self.settings:getSyncOnPowerOff()
+                    end,
+                    callback = function()
+                        self.settings:toggleSyncOnPowerOff()
+                        UIManager:broadcastEvent(Event:new("GrimmorySettingsChanged"))
+                    end,
+                    keep_menu_open = true,
+                },
             },
         },
         {
@@ -122,8 +133,8 @@ function GrimmoryMenu:getAutomaticSyncOptionsMenu()
             help_text = _("Everything: books, shelves, progress, read status and details changed on the server."),
             sub_item_table = {
                 {
-                    text = _("When the Reader Wakes"),
-                    help_text = _("Syncs the library once the reader has reconnected after waking, at most every 15 minutes."),
+                    text = _("When Due, After Waking"),
+                    help_text = _("Once the reader has been awake for 5 minutes (after unlocking or starting KOReader), syncs the library if the last successful library sync is older than the interval. Time asleep counts."),
                     checked_func = function()
                         return self.settings:getSyncOnResume()
                     end,
@@ -134,37 +145,12 @@ function GrimmoryMenu:getAutomaticSyncOptionsMenu()
                     keep_menu_open = true,
                 },
                 {
-                    text = _("On Power Off"),
-                    help_text = _("Syncs the library as the reader powers off."),
-                    checked_func = function()
-                        return self.settings:getSyncOnPowerOff()
-                    end,
-                    callback = function()
-                        self.settings:toggleSyncOnPowerOff()
-                        UIManager:broadcastEvent(Event:new("GrimmorySettingsChanged"))
-                    end,
-                    keep_menu_open = true,
-                    separator = true,
-                },
-                {
-                    text = _("Periodically"),
-                    checked_func = function()
-                        return self.settings:getSyncPeriodically()
-                    end,
-                    callback = function()
-                        self.settings:toggleSyncPeriodically()
-                        UIManager:broadcastEvent(Event:new("GrimmorySettingsChanged"))
-                    end,
-                    keep_menu_open = true,
-                },
-                {
                     text_func = function()
-                        local frequency = self.settings:getSyncFrequency()
-                        return T(_("Frequency: %1 minutes"), frequency)
+                        return T(_("Interval: %1 hours"), self.settings:getLibrarySyncIntervalHours())
                     end,
                     keep_menu_open = true,
                     callback = function(touchmenu_instance)
-                        self.dialog_manager:showSyncFrequencySettings(function()
+                        self.dialog_manager:showLibrarySyncIntervalSettings(function()
                             touchmenu_instance:updateItems()
                         end)
                     end,
