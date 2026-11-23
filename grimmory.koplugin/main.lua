@@ -148,6 +148,7 @@ function Grimmory:init()
     self.menu = GrimmoryMenu:new({
         ui = self.ui,
         settings = self.settings,
+        repository = self.repository,
         dialog_manager = self.dialog_manager,
         updater = self.updater,
     })

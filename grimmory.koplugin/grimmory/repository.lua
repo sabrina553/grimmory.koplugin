@@ -169,6 +169,177 @@ function GrimmoryLocalRepository:init()
     self:runMigrations()
 end
 
+-- Events whose session and progress have both been pushed to Grimmory.
+-- Shared by pruning so nothing still waiting to be sent is ever deleted.
+local SENT_EVENTS_SQL = [[
+    SELECT book_event.id
+    FROM book_event
+    JOIN book_session ON book_session.id = book_event.session_id
+    JOIN book ON book.id = book_session.book_id
+    LEFT JOIN book_sync_status AS sync_sessions
+        ON sync_sessions.book_id = book.id AND sync_sessions.sync_type = 'sessions'
+    LEFT JOIN book_sync_status AS sync_progress
+        ON sync_progress.book_id = book.id AND sync_progress.sync_type = 'progress'
+    WHERE
+        book.grimmory_id IS NOT NULL
+        AND book_event.created_at <= COALESCE(sync_sessions.last_synced_at, 0)
+        AND book_event.created_at <= COALESCE(sync_progress.last_synced_at, 0)
+]]
+
+---@return number | nil size_bytes
+function GrimmoryLocalRepository:getDatabaseSize()
+    local file = io.open(self.database_path, "rb")
+    if not file then
+        return nil
+    end
+    local size = file:seek("end")
+    file:close()
+    return size
+end
+
+---@param suffix string
+---@return boolean ok
+function GrimmoryLocalRepository:backupDatabase(suffix)
+    local backup_path = self.database_path .. "." .. suffix
+    local copy_error = ffiUtil.copyFile(self.database_path, backup_path)
+    if copy_error then
+        logger:err("Could not back up database to", backup_path, "-", copy_error)
+        return false
+    end
+    return true
+end
+
+local function vacuum(database_path)
+    local ok, message = with_database(database_path, function(conn)
+        conn:exec("VACUUM")
+    end, "rw")
+    if not ok then
+        logger:warn("Could not compact database:", message)
+    end
+end
+
+-- Delete data that is already on Grimmory and no longer needed locally:
+-- sent events older than the cutoff (keeping each book's newest session,
+-- which progress checks read), sessions left empty, and rows for book files
+-- that no longer exist and either have nothing left to send or were never
+-- matched to Grimmory (matching needs the file, so they never can be).
+---@param cutoff number events created before this timestamp may go
+---@param file_exists fun(path: string): boolean
+---@return boolean ok
+---@return table | string counts_or_error { events, sessions, books }
+function GrimmoryLocalRepository:pruneOldData(cutoff, file_exists)
+    if not self:backupDatabase("before-prune") then
+        return false, "Could not back up the database"
+    end
+
+    local ok, counts = with_database(self.database_path, function(conn)
+        local function changes()
+            return tonumber(conn:rowexec("SELECT changes()")) or 0
+        end
+
+        conn:exec("BEGIN IMMEDIATE")
+
+        local result = { events = 0, sessions = 0, books = 0 }
+
+        local events_stmt = conn:prepare([[
+            DELETE FROM book_event WHERE id IN (]] .. SENT_EVENTS_SQL .. [[
+                AND book_event.created_at < ?
+                AND book_session.id <> (
+                    SELECT MAX(newest.id) FROM book_session AS newest
+                    WHERE newest.book_id = book.id
+                )
+            )
+        ]])
+        events_stmt:bind(cutoff)
+        events_stmt:step()
+        events_stmt:close()
+        result.events = changes()
+
+        conn:exec([[
+            DELETE FROM book_session
+            WHERE NOT EXISTS (SELECT 1 FROM book_event WHERE book_event.session_id = book_session.id)
+        ]])
+        result.sessions = changes()
+
+        local missing = {}
+        local books_stmt = conn:prepare("SELECT id, book_path, grimmory_id FROM book")
+        local row = books_stmt:step()
+        while row do
+            if not file_exists(tostring(row[2])) then
+                table.insert(missing, { id = tonumber(row[1]), unmatched = row[3] == nil })
+            end
+            row = books_stmt:step()
+        end
+        books_stmt:close()
+
+        local unsent_stmt = conn:prepare([[
+            SELECT COUNT(*) FROM book_event
+            JOIN book_session ON book_session.id = book_event.session_id
+            WHERE book_session.book_id = ? AND book_event.id NOT IN (]] .. SENT_EVENTS_SQL .. [[)
+        ]])
+        local delete_statements = {
+            conn:prepare("DELETE FROM book_event WHERE session_id IN (SELECT id FROM book_session WHERE book_id = ?)"),
+            conn:prepare("DELETE FROM book_session WHERE book_id = ?"),
+            conn:prepare("DELETE FROM book_sync_status WHERE book_id = ?"),
+            conn:prepare("DELETE FROM book WHERE id = ?"),
+        }
+
+        for _, book in ipairs(missing) do
+            local book_id = book.id
+            local unsent = book.unmatched and 0 or tonumber(unsent_stmt:reset():bind(book_id):step()[1]) or 0
+            if unsent == 0 then
+                for _, stmt in ipairs(delete_statements) do
+                    stmt:reset():bind(book_id):step()
+                end
+                result.books = result.books + 1
+            end
+        end
+
+        unsent_stmt:close()
+        for _, stmt in ipairs(delete_statements) do
+            stmt:close()
+        end
+
+        conn:exec("COMMIT")
+        return result
+    end, "rw")
+
+    if not ok then
+        logger:err("Pruning failed, database left unchanged:", counts)
+        return false, tostring(counts)
+    end
+
+    vacuum(self.database_path)
+    logger:info("Pruned database:", counts.events, "events,", counts.sessions, "sessions,", counts.books, "books")
+    return true, counts
+end
+
+-- Remove all local data. Anything not yet sent to Grimmory is lost.
+---@return boolean ok
+function GrimmoryLocalRepository:clearAllData()
+    if not self:backupDatabase("before-clear") then
+        return false
+    end
+
+    local ok, message = with_database(self.database_path, function(conn)
+        conn:exec("BEGIN IMMEDIATE")
+        conn:exec("DELETE FROM book_event")
+        conn:exec("DELETE FROM book_session")
+        conn:exec("DELETE FROM book_sync_status")
+        conn:exec("DELETE FROM book")
+        conn:exec("COMMIT")
+    end, "rw")
+
+    if not ok then
+        logger:err("Clearing failed, database left unchanged:", message)
+        return false
+    end
+
+    vacuum(self.database_path)
+    logger:info("Cleared database")
+    return true
+end
+
 ---@param book_path string
 ---@param grimmory_id number | nil
 ---@return boolean ok
