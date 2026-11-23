@@ -161,7 +161,10 @@ end
 -- the firmware's own network picker when no saved network is in reach.
 -- Syncs must never prompt, so use NetConnectSilent() where the firmware has it.
 ---@return boolean|nil connected nil when silent connecting isn't available here
-local function pocketbook_connect_silently()
+-- Seconds to wait for the firmware's connect attempt before giving up.
+local SILENT_CONNECT_TIMEOUT = 60
+
+local function run_silent_connect()
     if not Device:isPocketBook() then
         return nil
     end
@@ -180,11 +183,62 @@ local function pocketbook_connect_silently()
         return nil
     end
 
-    inkview.WiFiPower(1)
-    local status = tonumber(inkview.NetConnectSilent(nil))
+    -- The connect call blocks until the firmware gives up (about 30 s with no
+    -- saved network in reach), so run it in a child process and keep the
+    -- reader responsive meanwhile. Same pattern as ZenOS's wifi worker.
+    -- WARNING: this relies on the firmware accepting the connect call from a
+    -- forked process. If wifi misbehaves after a sync (stays off, or the
+    -- status bar disagrees), suspect this first; see the project notes.
+    local running_coroutine = coroutine.running()
+    local pid, read_fd = ffiutil.runInSubProcess(function(_, write_fd)
+        inkview.WiFiPower(1)
+        local child_status = tonumber(inkview.NetConnectSilent(nil))
+        ffiutil.writeToFD(write_fd, tostring(child_status), true)
+    end, true)
+
+    if not pid then
+        logger:err("Could not start the WiFi connect process", read_fd)
+        return false
+    end
+
+    local status = nil
+    local polls = 0
+    local timed_out = false
+    local poll
+    poll = function()
+        polls = polls + 1
+
+        if not ffiutil.isSubProcessDone(pid) then
+            if not timed_out and polls >= SILENT_CONNECT_TIMEOUT * 4 then
+                logger:err("WiFi connect process timed out, stopping it")
+                timed_out = true
+                -- Negative pid: the whole process group, as it was started with one.
+                pcall(ffi.C.kill, -pid, 9)
+                pcall(ffi.C.kill, pid, 9)
+            end
+            -- Keep polling until the process has really gone, even after
+            -- killing it, so nothing touches the radio while it still might.
+            UIManager:scheduleIn(0.25, poll)
+            return
+        end
+
+        if not timed_out then
+            status = tonumber(readFromFD(read_fd))
+        end
+
+        ffi.C.close(read_fd)
+        coroutine.resume(running_coroutine)
+    end
+
+    UIManager:scheduleIn(0.25, poll)
+    coroutine.yield()
 
     if status ~= ffi.C.NET_OK then
         logger:info("Silent WiFi connect failed, status", status)
+        -- The connect process has finished by now, so it is safe to power the
+        -- radio back down; left on it would drain the battery until next time.
+        pcall(NetworkManager.turnOffWifi, NetworkManager)
+        pcall(inkview.WiFiPower, 0)
         return false
     end
 
@@ -204,6 +258,37 @@ local function pocketbook_connect_silently()
     end
 
     return true
+end
+
+-- Jobs waiting on the connect attempt already in progress, or nil if none is.
+local connect_waiters = nil
+
+-- Two jobs connecting at once start two firmware attempts that fight over the
+-- radio, and each turns wifi off when it fails. Later jobs wait and share the
+-- first attempt's result instead.
+---@return boolean|nil connected nil when silent connecting isn't available here
+local function pocketbook_connect_silently()
+    if connect_waiters ~= nil then
+        logger:dbg("WiFi connect already in progress, waiting for it")
+        table.insert(connect_waiters, coroutine.running())
+        return coroutine.yield()
+    end
+
+    connect_waiters = {}
+    local ok, result = pcall(run_silent_connect)
+    local waiters = connect_waiters
+    connect_waiters = nil
+
+    if not ok then
+        logger:err("Silent WiFi connect errored", result)
+        result = false
+    end
+
+    for _, waiter in ipairs(waiters) do
+        coroutine.resume(waiter, result)
+    end
+
+    return result
 end
 
 ---@return bool enabled_wifi
