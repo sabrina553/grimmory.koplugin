@@ -1203,4 +1203,17 @@ function GrimmorySynchronize:synchronizeBook(book_path, refresh_book, callback)
     logger:info("Done synchronizing book:", book_path)
 end
 
+-- A sync makes several database queries per book; share one connection for
+-- the whole run rather than opening the database for each.
+for _, method_name in ipairs({ "synchronizeAll", "synchronizeBook" }) do
+    local run_unshared = GrimmorySynchronize[method_name]
+
+    GrimmorySynchronize[method_name] = function(self, ...)
+        if self.repository and self.repository.withSharedConnection then
+            return self.repository:withSharedConnection(run_unshared, self, ...)
+        end
+        return run_unshared(self, ...)
+    end
+end
+
 return GrimmorySynchronize
