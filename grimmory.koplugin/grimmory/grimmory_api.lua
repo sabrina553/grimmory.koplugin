@@ -499,23 +499,51 @@ end
 function GrimmoryAPI:downloadBook(book_id, destination_path)
     local path = "/api/v1/books/" .. tonumber(book_id) .. "/download"
 
-    local destination_file, file_error = io.open(destination_path, "wb")
+    -- Write to a separate file and rename it once complete, so an
+    -- interrupted download never leaves a partial book at the real path.
+    local partial_path = destination_path .. ".part"
+
+    local destination_file, file_error = io.open(partial_path, "wb")
     if not destination_file then
         return false, file_error or "Unknown error opening file"
     end
 
-    local sink = ltn12.sink.file(destination_file)
+    local bytes_written = 0
+    local sink = function(chunk)
+        if chunk then
+            bytes_written = bytes_written + #chunk
+            return destination_file:write(chunk)
+        end
+        return 1
+    end
 
-    local ok, code, message = self:request("GET", path, nil, nil, sink)
+    local request_ok, ok, code, message = pcall(self.request, self, "GET", path, nil, nil, sink)
+    destination_file:close()
+
+    if not request_ok then
+        os.remove(partial_path)
+        return false, tostring(ok)
+    end
 
     if not ok then
-        os.remove(destination_path)
+        os.remove(partial_path)
 
         if not message then
             message = "HTTP Error: " .. tostring(code)
         end
 
         return false, message
+    end
+
+    if bytes_written == 0 then
+        os.remove(partial_path)
+        return false, "Downloaded file is empty"
+    end
+
+    local rename_ok, rename_error = os.rename(partial_path, destination_path)
+    if not rename_ok then
+        os.remove(partial_path)
+        return false, rename_error or "Could not move downloaded file into place"
     end
 
     return true, destination_path

@@ -6,6 +6,16 @@ local GrimmoryLogger = require("grimmory/logger")
 
 local logger = GrimmoryLogger:new()
 
+local function fileSize(path)
+    local file = io.open(path, "rb")
+    if not file then
+        return nil
+    end
+    local size = file:seek("end")
+    file:close()
+    return size
+end
+
 ---@class GrimmorySynchronize
 ---@field repository GrimmoryLocalRepository
 ---@field reading_annotations GrimmoryReadingAnnotations
@@ -711,7 +721,12 @@ function GrimmorySynchronize:pullBook(book)
     --       If found, set the `download path to that value.
 
     if download_path ~= nil and util.fileExists(download_path) then
-        book_exists = true
+        if fileSize(download_path) == 0 then
+            logger:warn("Removing empty book file before downloading again:", download_path)
+            os.remove(download_path)
+        else
+            book_exists = true
+        end
     end
 
     if not book_exists then
